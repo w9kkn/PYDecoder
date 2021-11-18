@@ -1,16 +1,55 @@
-
 from tkinter import *
-
 from tkinter import ttk
-
 import json,socket,xmltodict
+import os
+
 
 global is_on
 global radio_freq
 global init
+
+os.environ['BLINKA_FT232H'] = '1'
+
+import board
+import digitalio
+
 init=False
 radio_freq=0
 is_on=True
+
+bcd_bit0 = digitalio.DigitalInOut(board.D4)
+bcd_bit1 = digitalio.DigitalInOut(board.D5)
+bcd_bit2 = digitalio.DigitalInOut(board.D6)
+bcd_bit3 = digitalio.DigitalInOut(board.D7)
+
+bcd_bit0.direction = digitalio.Direction.OUTPUT
+bcd_bit1.direction = digitalio.Direction.OUTPUT
+bcd_bit2.direction = digitalio.Direction.OUTPUT
+bcd_bit3.direction = digitalio.Direction.OUTPUT
+
+def get_bcd(frq):
+    if frq < 2000:
+        return [False,False,False,True] #160
+    elif frq < 4000:
+        return [False,False,True,False] #80
+    elif frq < 6000:
+        return [False,False,False,False] #60
+    elif frq < 8000:
+        return [False,False,True,True]#40
+    elif frq < 11000:
+        return [False,True,False,False] #30
+    elif frq < 15000:
+        return [False,True,False,True] #20
+    elif frq < 19000:
+        return [False,True,True,False] #17
+    elif frq < 22000:
+        return [False,True,True,True] #15
+    elif frq < 25000:
+        return [True,False,False,False] #12
+    elif frq < 30000:
+        return [True,False,False,True] #10
+    elif frq < 60000:
+        return [True,False,True,False] #6
 
 def get_Ant(frq):
     if frq < 2000:
@@ -53,7 +92,7 @@ def freq_update():
             UDP_IP = ipaddr.get()
             UDP_PORT = eval(udpport.get())
             sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-            sock.settimeout(5)# UDP
+            sock.settimeout(5) # UDP
             sock.bind((UDP_IP, UDP_PORT))
             data, addr = sock.recvfrom(2048)
             xml_str=(data.decode("utf-8"))
@@ -62,9 +101,10 @@ def freq_update():
                 freq=(eval(radio_dict["RadioInfo"]["Freq"])/100)
                 radio_freq=freq
                 radfreq.config(text=((str(freq))+ " kHz"))
-                set_AG(AG_IP.get(),eval(AG_TCP.get()),AG_RF.get(),get_Ant(radio_freq))
-        except:
-            print ("UDP Data Timeout")
+                #     set_AG(AG_IP.get(),eval(AG_TCP.get()),AG_RF.get(),get_Ant(radio_freq))
+                bcd_bit0.value,bcd_bit1.value,bcd_bit2.value,bcd_bit3.value = get_bcd(radio_freq)
+        except Exception as e:
+            print (str(e))
 
         
     window.after(500, freq_update)
@@ -79,12 +119,6 @@ def switch():
         on_button.config(fg = "green",text="Start")
         init = False
         is_on = True
-
-
-
-
-
-
 
 window = Tk()
 
