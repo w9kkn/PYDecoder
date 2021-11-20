@@ -8,7 +8,8 @@ global is_on
 global radio_freq
 global init
 
-from pyftdi.gpio import GpioMpsseController
+import pyftdi
+from pyftdi.gpio import *
 
 init = False
 radio_freq = 0
@@ -16,9 +17,20 @@ is_on = True
 
 gpio1 = GpioMpsseController()
 gpio2 = GpioMpsseController()
+gpio3 = GpioMpsseController()
 
-gpio1.configure("ftdi://ftdi:232h:FT2HDMC1/1", direction=(0xFF & ((1 << 8) - 1)), frequency=1e3, initial=0x0)
-# gpio2.configure("ftdi://ftdi:232h:::1/1", direction=(0xFF & ((1 << 8) - 1)), frequency=1e3, initial=0x0)
+gpios = pyftdi.ftdi.Ftdi.list_devices()
+
+device_urls=[]
+
+for device in  range (len(gpios)):
+    if ((((gpios[device][0][6]))) == ("C232HM-EDHSL-0")):
+        device_urls.append("ftdi://ftdi:232h:"+(str((gpios[device][0][4])))+"/1")
+
+device_count = (len(device_urls))
+
+
+    
 
 def get_bcd(frq):
     if frq < 2000:
@@ -99,7 +111,12 @@ def freq_update():
                 radio_freq = freq
                 radfreq.config(text=((str(freq)) + " kHz"))
                 #     set_AG(AG_IP.get(),eval(AG_TCP.get()),AG_RF.get(),get_Ant(radio_freq))
-                gpio1.write(get_bcd(radio_freq))
+                if device_count > 0:
+                    gpio1.write(get_bcd(radio_freq))
+                if device_count > 1:
+                    gpio2.write(get_bcd(radio_freq))
+                if device_count > 2:
+                    gpio3.write(get_bcd(radio_freq))
         except Exception as e:
             print(str(e))
 
@@ -159,6 +176,22 @@ Label(tab2, text="AG Port:").grid(row=2)
 AG_RF = Entry(tab2)
 AG_RF.grid(column=1, row=2)
 AG_RF.insert(0, "1")
+
+
+Label(tab3, text="FTDI Device URLs:").grid(row=0)
+
+if device_count > 0:
+    gpio1.configure(device_urls[0], direction=(0xFF & ((1 << 8) - 1)), frequency=1e3, initial=0x0)
+    Label(tab3, text=device_urls[0]).grid(row=1)
+if device_count > 1:
+    gpio2.configure(device_urls[1], direction=(0xFF & ((1 << 8) - 1)), frequency=1e3, initial=0x0)
+    Label(tab3, text=device_urls[1]).grid(row=2)
+if device_count > 2:
+    gpio3.configure(device_urls[2], direction=(0xFF & ((1 << 8) - 1)), frequency=1e3, initial=0x0)
+    Label(tab3, text=device_urls[2]).grid(row=2)
+
+
+
 
 tab_control.add(tab1, text='Freq Data')
 tab_control.add(tab3, text='BPF Control')
