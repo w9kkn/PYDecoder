@@ -15,11 +15,14 @@ init = False
 radio_freq = 0
 is_on = True
 
-gpio1 = GpioMpsseController()
-gpio2 = GpioMpsseController()
-gpio3 = GpioMpsseController()
+gpios=[]
 
-gpios = pyftdi.ftdi.Ftdi.list_devices()
+try:
+    gpio1 = GpioMpsseController()
+    gpio2 = GpioMpsseController()
+    gpio3 = GpioMpsseController()
+    gpios = pyftdi.ftdi.Ftdi.list_devices()
+except Exception as e: print (e)
 
 device_urls=[]
 
@@ -110,7 +113,7 @@ def freq_update():
                 freq = (eval(radio_dict["RadioInfo"]["Freq"]) / 100)
                 radio_freq = freq
                 radfreq.config(text=((str(freq)) + " kHz"))
-                #     set_AG(AG_IP.get(),eval(AG_TCP.get()),AG_RF.get(),get_Ant(radio_freq))
+                set_AG(AG_IP.get(),eval(AG_TCP.get()),AG_RF.get(),get_Ant(radio_freq))
                 if device_count > 0:
                     gpio1.write(get_bcd(radio_freq))
                 if device_count > 1:
