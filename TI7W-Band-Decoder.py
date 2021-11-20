@@ -10,7 +10,7 @@ global init
 
 import pyftdi
 from pyftdi.gpio import *
-
+from datetime import datetime
 init = False
 radio_freq = 0
 is_on = True
@@ -86,12 +86,13 @@ def set_AG(ipaddr, tcp_port, radio_nr, ant_port):
     tcp_str = ("!000a!00cc80!" + (str(radio_nr)) + ";" + (str((ant_port))))
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0) #if unable to make a connection after a second, time out   
             s.connect((ipaddr, tcp_port))
-            # s.sendall(tcp_str)
             s.sendall((bytes(tcp_str, 'utf-8')))
-    except Exception as e:
-        print(e)
-
+            Label(tab2, text=("AG Message Sent - "+str(datetime.now()))).grid(row=3)
+    except:
+        print ("Antenna Genius Communication Failure") #print to console. Add GUI element? 
+        Label(tab2, text=("AG Comm Failure - "+str(datetime.now()))).grid(row=3)
 
 def freq_update():
     global is_on
@@ -137,7 +138,7 @@ def switch():
 
 window = Tk()
 
-window.title("FreqControl")
+window.title("IP Band Decoder")
 
 tab_control = ttk.Notebook(window)
 
