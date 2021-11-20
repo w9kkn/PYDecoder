@@ -86,6 +86,7 @@ def set_AG(ipaddr, tcp_port, radio_nr, ant_port):
     tcp_str = ("!000a!00cc80!" + (str(radio_nr)) + ";" + (str((ant_port))))
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+<<<<<<< Updated upstream
             s.settimeout(1.0) #if unable to make a connection after a second, time out   
             s.connect((ipaddr, tcp_port))
             s.sendall((bytes(tcp_str, 'utf-8')))
@@ -93,6 +94,15 @@ def set_AG(ipaddr, tcp_port, radio_nr, ant_port):
     except:
         print ("Antenna Genius Communication Failure") #print to console. Add GUI element? 
         Label(tab2, text=("AG Comm Failure - "+str(datetime.now()))).grid(row=3)
+=======
+            s.settimeout(0.5) #if unable to make a connection after a second, time out   
+            s.connect((ipaddr, tcp_port))
+            s.sendall((bytes(tcp_str, 'utf-8')))
+            print ("Success!")
+            Label(tab2, text=("AG Message Delivered!")).grid(row=3)
+    except:
+        Label(tab2, text=("AG Comm Failure!!")).grid(row=3)
+>>>>>>> Stashed changes
 
 def freq_update():
     global is_on
