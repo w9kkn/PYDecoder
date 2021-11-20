@@ -6,7 +6,6 @@ from tkinter import ttk
 
 global is_on
 global radio_freq
-global init
 
 import pyftdi
 from pyftdi.gpio import *
@@ -32,8 +31,6 @@ for device in  range (len(gpios)):
 
 device_count = (len(device_urls))
 
-
-    
 
 def get_bcd(frq):
     if frq < 2000:
@@ -89,23 +86,13 @@ def set_AG(ipaddr, tcp_port, radio_nr, ant_port):
     tcp_str = ("!000a!00cc80!" + (str(radio_nr)) + ";" + (str((ant_port))))
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-<<<<<<< Updated upstream
-            s.settimeout(1.0) #if unable to make a connection after a second, time out   
-            s.connect((ipaddr, tcp_port))
-            s.sendall((bytes(tcp_str, 'utf-8')))
-            Label(tab2, text=("AG Message Sent - "+str(datetime.now()))).grid(row=3)
-    except:
-        print ("Antenna Genius Communication Failure") #print to console. Add GUI element? 
-        Label(tab2, text=("AG Comm Failure - "+str(datetime.now()))).grid(row=3)
-=======
             s.settimeout(0.5) #if unable to make a connection after a second, time out   
             s.connect((ipaddr, tcp_port))
             s.sendall((bytes(tcp_str, 'utf-8')))
-            print ("Success!")
             Label(tab2, text=("AG Message Delivered!")).grid(row=3)
     except:
         Label(tab2, text=("AG Comm Failure!!")).grid(row=3)
->>>>>>> Stashed changes
+
 
 def freq_update():
     global is_on
@@ -139,13 +126,11 @@ def freq_update():
 
 def switch():
     global is_on
-    global init
     if is_on:
         on_button.config(fg="red", text="Stop")
         is_on = False
     else:
         on_button.config(fg="green", text="Start")
-        init = False
         is_on = True
 
 
@@ -210,15 +195,6 @@ if device_count > 2:
 tab_control.add(tab1, text='Freq Data')
 tab_control.add(tab3, text='BPF Control')
 tab_control.add(tab2, text='4O3A Band Ports')
-
-##lbl1 = Label(tab1, text= 'label1')
-##
-##lbl1.grid(column=0, row=0)
-##
-##lbl2 = Label(tab2, text= 'label2')
-##
-##lbl2.grid(column=0, row=0)
-##
 
 tab_control.pack(expand=1, fill='both')
 window.after(100, freq_update)
