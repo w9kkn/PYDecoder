@@ -1,6 +1,7 @@
 import json
 import socket
 import xmltodict
+
 from tkinter import *
 from tkinter import ttk
 
@@ -10,11 +11,15 @@ global radio_freq
 import pyftdi
 from pyftdi.gpio import *
 from datetime import datetime
+
+global window_settings
+
 init = False
 radio_freq = 0
 is_on = True
 
 gpios=[]
+window_settings={}
 
 try:
     gpio1 = GpioMpsseController()
@@ -30,6 +35,15 @@ for device in  range (len(gpios)):
         device_urls.append("ftdi://ftdi:232h:"+(str((gpios[device][0][4])))+"/1")
 
 device_count = (len(device_urls))
+
+def init_settings():
+    global window_settings
+    try:
+        with open("config.json") as json_data_file:
+            window_settings=json.load(json_data_file)
+    except:
+        window_settings={"logger_ip":"127.0.0.1","logger_udp":"12060","AG_1_IP":"192.168.1.140","AG_1_UDP_Port":"9007","AG_1_RF_Port":"1"}
+    
 
 
 def get_bcd(frq):
@@ -89,21 +103,28 @@ def set_AG(ipaddr, tcp_port, radio_nr, ant_port):
             s.settimeout(0.5) #if unable to make a connection after a second, time out   
             s.connect((ipaddr, tcp_port))
             s.sendall((bytes(tcp_str, 'utf-8')))
+
+
             Label(tab2, text=("AG Message Delivered!")).grid(row=3)
     except:
-        Label(tab2, text=("AG Comm Failure!!")).grid(row=3)
+        Label(tab2, text=("AG Comm Failure!")).grid(row=3)
+
+
+def N1MM_UDP_Freq():
+    return (0)
 
 
 def freq_update():
     global is_on
     global radio_freq
+    global window_settings
+    window_settings={"logger_ip":ipaddr.get(),"logger_udp":udpport.get(),"AG_1_IP":AG_IP.get(),"AG_1_UDP_Port":AG_TCP.get(),"AG_1_RF_Port":AG_RF.get()}
     if is_on == False:
         try:
-            UDP_IP = ipaddr.get()
-            UDP_PORT = eval(udpport.get())
+    
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(5)  # UDP
-            sock.bind((UDP_IP, UDP_PORT))
+            sock.bind((window_settings["logger_ip"], (eval(window_settings["logger_udp"]))))
             data, addr = sock.recvfrom(2048)
             xml_str = (data.decode("utf-8"))
             radio_dict = (json.loads((json.dumps(xmltodict.parse(xml_str)))))
@@ -111,7 +132,7 @@ def freq_update():
                 freq = (eval(radio_dict["RadioInfo"]["Freq"]) / 100)
                 radio_freq = freq
                 radfreq.config(text=((str(freq)) + " kHz"))
-                set_AG(AG_IP.get(),eval(AG_TCP.get()),AG_RF.get(),get_Ant(radio_freq))
+                set_AG((window_settings["AG_1_IP"]),(eval(window_settings["AG_1_UDP_Port"])),(window_settings["AG_1_RF_Port"]),get_Ant(radio_freq))
                 if device_count > 0:
                     gpio1.write(get_bcd(radio_freq))
                 if device_count > 1:
@@ -147,12 +168,12 @@ tab3 = ttk.Frame(tab_control)
 Label(tab1, text="Logger IP Address:").grid(row=0)
 ipaddr = Entry(tab1)
 ipaddr.grid(column=1, row=0)
-ipaddr.insert(0, "127.0.0.1")
+
 
 Label(tab1, text="Logger UDP Port:").grid(row=1)
 udpport = Entry(tab1)
 udpport.grid(column=1, row=1)
-udpport.insert(0, "12060")
+
 
 Label(tab1, text="Radio Freq:").grid(row=4)
 radfreq = Label(tab1, text="FreqHere")
@@ -164,17 +185,25 @@ on_button.grid(row=3, column=1)
 Label(tab2, text="IP Address:").grid(row=0)
 AG_IP = Entry(tab2)
 AG_IP.grid(column=1, row=0)
-AG_IP.insert(0, "192.168.1.140")
+
 
 Label(tab2, text="TCP Port:").grid(row=1)
 AG_TCP = Entry(tab2)
 AG_TCP.grid(column=1, row=1)
-AG_TCP.insert(0, "9007")
+
 
 Label(tab2, text="AG Port:").grid(row=2)
 AG_RF = Entry(tab2)
 AG_RF.grid(column=1, row=2)
-AG_RF.insert(0, "1")
+
+init_settings()
+
+ipaddr.insert(0, window_settings["logger_ip"])
+udpport.insert(0, window_settings["logger_udp"])
+AG_IP.insert(0, window_settings["AG_1_IP"])
+AG_TCP.insert(0, window_settings["AG_1_UDP_Port"])
+AG_RF.insert(0, window_settings["AG_1_RF_Port"])
+
 
 
 Label(tab3, text="FTDI Device URLs:").grid(row=0)
@@ -199,3 +228,10 @@ tab_control.add(tab2, text='4O3A Band Ports')
 tab_control.pack(expand=1, fill='both')
 window.after(100, freq_update)
 window.mainloop()
+
+json_config_file = open("config.json", "w")
+json.dump(window_settings, json_config_file)
+json_config_file.close()
+
+
+
