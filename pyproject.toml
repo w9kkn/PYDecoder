@@ -1,0 +1,13 @@
+[project]
+name = "pydecoder"
+version = "0.1.0"
+description = "UDP Broadcast to AntennaGenius and FTDI BCD Translator"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyftdi>=0.54.0",
+    "xmltodict>=0.13.0",
+]
+
+[project.scripts]
+pydecoder = "pydecoder.ui.main_window:main"
