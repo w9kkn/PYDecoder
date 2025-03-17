@@ -10,6 +10,19 @@ GPIO USB cables and a 4O3A Antenna Genius.
 import logging
 import sys
 import os
+
+# Try to initialize libusb backend early
+try:
+    import usb.backend.libusb1
+    import libusb_package
+    backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
+    if backend:
+        print("Successfully initialized libusb_package backend")
+except ImportError:
+    print("libusb_package not available, using default backend")
+except Exception as e:
+    print(f"Error initializing libusb backend: {e}")
+
 from pydecoder import __version__
 from pydecoder.ui.main_window import DecoderUI
 

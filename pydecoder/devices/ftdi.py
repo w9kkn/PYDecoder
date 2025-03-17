@@ -6,6 +6,7 @@ import pyftdi.ftdi
 from pyftdi.gpio import *
 import usb.core
 import usb.util
+import usb.backend.libusb1
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,18 @@ class FTDIDeviceManager:
             self.gpio_device2 = GpioMpsseController()
             self.gpio_device3 = GpioMpsseController()
             
+            # Try to find and use libusb1 backend
+            try:
+                import libusb_package
+                backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
+                logger.debug("Using libusb_package backend")
+            except ImportError:
+                logger.debug("libusb_package not found, using default backend")
+                backend = None
+            
             # First check with PyUSB directly to see what USB devices are connected
             logger.debug("Checking USB devices with usb.core.find()")
-            usb_devices = list(usb.core.find(find_all=True))
+            usb_devices = list(usb.core.find(find_all=True, backend=backend))
             
             # FTDI vendors: 0x0403
             ftdi_devices = [dev for dev in usb_devices if dev.idVendor == 0x0403]
