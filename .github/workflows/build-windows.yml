@@ -28,6 +28,7 @@ jobs:
     - name: Setup Python environment
       run: |
        uv venv
+       export UV_LINK_MODE=copy
        uv pip install -r requirements.txt
        uv pip install pyinstaller
 
