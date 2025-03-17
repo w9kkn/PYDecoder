@@ -3,10 +3,9 @@ from typing import List, Optional
 
 import logging
 import pyftdi.ftdi
-from pyftdi.gpio import GpioMpsseController
+from pyftdi.gpio import *
 import usb.core
 import usb.util
-import libusb_package
 import usb.backend.libusb1
 
 logger = logging.getLogger(__name__)
@@ -70,10 +69,7 @@ class FTDIDeviceManager:
                         logger.debug(f"    Skipping non-target device (not product ID 0x6014)")
                 except Exception as e:
                     logger.debug(f"    Error accessing device: {e}")
-            
-            # Skip pyftdi discovery and use directly detected devices
-            logger.debug("Skipping pyftdi.ftdi.Ftdi.list_devices() due to platform compatibility issues")
-            
+
             # Create device URLs from our direct USB detection
             for dev, serial in target_devices:
                 device_url = f"ftdi://ftdi:232h:{serial}/1"
