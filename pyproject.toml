@@ -1,13 +1,36 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pydecoder"
-version = "0.1.0"
+version = "1.0.0"
 description = "UDP Broadcast to AntennaGenius and FTDI BCD Translator"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "W9KKN"}
+]
 dependencies = [
     "pyftdi>=0.54.0",
     "xmltodict>=0.13.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "pyinstaller>=5.6.2",
+]
+
+[tool.setuptools]
+packages = ["pydecoder"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+
 [project.scripts]
-pydecoder = "pydecoder.ui.main_window:main"
+pydecoder = "main:main"
