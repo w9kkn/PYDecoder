@@ -40,7 +40,7 @@ jobs:
         
     - name: Build executable
       run: |
-        python -m PyInstaller --onefile --noconsole --name PYDecoder main.py
+        uv run PyInstaller --onefile --noconsole --name PYDecoder main.py
     
     - name: Rename executable with version
       run: |
