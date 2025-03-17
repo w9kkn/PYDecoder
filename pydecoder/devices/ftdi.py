@@ -298,44 +298,51 @@ class FTDIDeviceManager:
                 if windows_libusb_mode:
                     logger.info(f"Using Windows-specific configuration approach for {url}")
                     
-                    # For Windows with libusb, we'll try a more direct approach
+                    # For Windows with libusb, we need to properly initialize GpioMpsseController
                     try:
-                        from pyftdi.ftdi import Ftdi
-                        
-                        # Extract the serial number from the URL
-                        # URL format is typically: ftdi://ftdi:232h:SERIAL/1
-                        parts = url.split(':')
-                        if len(parts) >= 4:
-                            serial = parts[3].split('/')[0]
-                            logger.debug(f"Extracted serial number: {serial}")
-                            
-                            # Create an Ftdi instance directly
-                            ftdi_device = Ftdi()
-                            
-                            # Try to open the device directly by serial number
-                            ftdi_device.open_from_url(url)
-                            logger.info(f"Successfully opened FTDI device with serial {serial}")
-                            
-                            # Configure for MPSSE mode (mode 0)
-                            ftdi_device.set_bitmode(0xFF, Ftdi.BITMODE_MPSSE)
-                            logger.info(f"Set FTDI device to MPSSE mode")
-                            
-                            # Store the device based on index
-                            if device_idx == 0:
-                                self.gpio_device1._ftdi = ftdi_device
-                                logger.info("Assigned to device 1 slot")
-                            elif device_idx == 1:
-                                self.gpio_device2._ftdi = ftdi_device
-                                logger.info("Assigned to device 2 slot")
-                            elif device_idx == 2:
-                                self.gpio_device3._ftdi = ftdi_device
-                                logger.info("Assigned to device 3 slot")
-                            
-                            # Continue to next device
-                            continue
+                        # Properly configure the existing GpioMpsseController instance
+                        if device_idx == 0 and self.gpio_device1:
+                            logger.debug(f"Configuring FTDI device 1 with Windows-specific approach: {url}")
+                            try:
+                                self.gpio_device1.configure(
+                                    url, 
+                                    direction=0xFF,  # All pins as outputs
+                                    frequency=1e3,   # 1 kHz
+                                    initial=0x0      # Initial value 0
+                                )
+                                logger.info(f"Successfully configured device 1 with MPSSE mode")
+                            except Exception as e:
+                                logger.error(f"Error configuring device 1: {e}")
+                        elif device_idx == 1 and self.gpio_device2:
+                            logger.debug(f"Configuring FTDI device 2 with Windows-specific approach: {url}")
+                            try:
+                                self.gpio_device2.configure(
+                                    url, 
+                                    direction=0xFF,  # All pins as outputs
+                                    frequency=1e3,   # 1 kHz
+                                    initial=0x0      # Initial value 0
+                                )
+                                logger.info(f"Successfully configured device 2 with MPSSE mode")
+                            except Exception as e:
+                                logger.error(f"Error configuring device 2: {e}")
+                        elif device_idx == 2 and self.gpio_device3:
+                            logger.debug(f"Configuring FTDI device 3 with Windows-specific approach: {url}")
+                            try:
+                                self.gpio_device3.configure(
+                                    url, 
+                                    direction=0xFF,  # All pins as outputs
+                                    frequency=1e3,   # 1 kHz
+                                    initial=0x0      # Initial value 0
+                                )
+                                logger.info(f"Successfully configured device 3 with MPSSE mode")
+                            except Exception as e:
+                                logger.error(f"Error configuring device 3: {e}")
+                                
+                        # Continue to next device
+                        continue
                         
                     except ImportError as e:
-                        logger.error(f"Failed to import necessary module for direct device access: {e}")
+                        logger.error(f"Failed to import necessary module for device access: {e}")
                     except Exception as e:
                         logger.error(f"Error in Windows-specific device configuration: {e}")
                 
@@ -405,7 +412,7 @@ class FTDIDeviceManager:
         import sys
         windows_libusb_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'libusb'
         
-        # Direct FTDI write for Windows with libusb backend
+        # For Windows with libusb backend, use standard GPIO write but with additional error handling
         if windows_libusb_mode:
             devices = [
                 (1, self.gpio_device1),
@@ -414,31 +421,15 @@ class FTDIDeviceManager:
             ]
             
             for device_num, gpio in devices:
-                if gpio and hasattr(gpio, '_ftdi') and gpio._ftdi:
+                if gpio:
                     try:
-                        # Use direct FTDI API for Windows
-                        ftdi_device = gpio._ftdi
-                        
-                        # Check if ftdi_device has write_data method
-                        if not hasattr(ftdi_device, 'write_data'):
-                            logger.error(f"FTDI device {device_num} doesn't have write_data method")
-                            continue
-                        
-                        # Prepare command buffer for MPSSE mode
-                        # Set all 8 bits of the ADBUS port to the BCD value
-                        command = bytes([
-                            0x80,           # Command: Set data bits low byte
-                            bcd_value & 0xFF,  # Value
-                            0xFF            # Direction (all output)
-                        ])
-                        
-                        # Write the command
-                        ftdi_device.write_data(command)
-                        logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device {device_num} using direct FTDI API")
+                        # Use standard GPIO write method which handles MPSSE internally
+                        gpio.write(bcd_value)
+                        logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device {device_num} on Windows")
                     except Exception as e:
-                        logger.error(f"Error writing directly to FTDI device {device_num}: {e}")
-                        # If direct write fails, fall back to simulation mode
-                        logger.warning(f"Direct FTDI write failed, switching to simulation mode")
+                        logger.error(f"Error writing to FTDI device {device_num} on Windows: {e}")
+                        # If write fails, fall back to simulation mode
+                        logger.warning(f"FTDI write failed on Windows, switching to simulation mode")
                         self.simulation_mode = True
                         break
             
@@ -447,7 +438,7 @@ class FTDIDeviceManager:
                 logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
                 return
             
-            # If we successfully wrote via direct method, we're done
+            # If we successfully wrote via standard method, we're done
             return
             
         # Standard GPIO write for non-Windows or ftd2xx backend
@@ -516,18 +507,10 @@ class FTDIDeviceManager:
         for device_num, gpio in devices:
             if gpio:
                 try:
-                    # Direct close for Windows with libusb backend
-                    if windows_libusb_mode and hasattr(gpio, '_ftdi') and gpio._ftdi:
-                        logger.info(f"Closing FTDI device {device_num} with direct method")
-                        try:
-                            gpio._ftdi.close()
-                            logger.info(f"Successfully closed FTDI device {device_num} with direct method")
-                        except Exception as e:
-                            logger.error(f"Error closing FTDI device {device_num} with direct method: {e}")
-                    else:
-                        # Standard close
-                        logger.info(f"Closing FTDI device {device_num}")
-                        gpio.close()
+                    # Use standard close for Windows with libusb backend
+                    # GpioMpsseController.close() will handle closing the underlying FTDI device
+                    logger.info(f"Closing FTDI device {device_num}")
+                    gpio.close()
                 except pyftdi.ftdi.FtdiError as e:
                     if "Operation not supported" in str(e) and sys.platform == 'win32':
                         logger.warning(f"Windows USB access limitation detected while closing device {device_num}: {e}")
