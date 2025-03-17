@@ -32,7 +32,7 @@ def get_version():
             if '-' not in raw_version:
                 return raw_version
             
-            # If it's a tag-commits-hash format, convert to tag.dev+commits.hash
+            # If it's a tag-commits-hash format, convert to tag.devN+local format
             parts = raw_version.split('-')
             base_version = parts[0]
             
@@ -44,7 +44,10 @@ def get_version():
             if len(parts) >= 3:
                 commit_count = parts[1]
                 commit_hash = parts[2]
-                version = f"{base_version}.dev{commit_count}+{commit_hash}"
+                # PEP 440: Remove 'g' prefix from commit hash if present
+                if commit_hash.startswith('g'):
+                    commit_hash = commit_hash[1:]
+                version = f"{base_version}.dev+{commit_count}+{commit_hash}"
             else:
                 version = base_version
                 
