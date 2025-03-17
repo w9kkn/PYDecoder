@@ -47,13 +47,18 @@ def get_version():
                 # PEP 440: Remove 'g' prefix from commit hash if present
                 if commit_hash.startswith('g'):
                     commit_hash = commit_hash[1:]
-                version = f"{base_version}.dev+{commit_count}+{commit_hash}"
+                version = f"{base_version}.dev{commit_count}+g{commit_hash}"
             else:
                 version = base_version
                 
             # Add local version identifier for dirty working directory
             if is_dirty:
-                version += "+dirty"
+                if "+" in version:
+                    # Already has a local version, append to it
+                    version = version.replace("+", "+dirty.")
+                else:
+                    # Add new local version
+                    version += "+dirty"
                 
             return version
     except Exception as e:
