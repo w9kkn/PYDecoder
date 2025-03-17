@@ -2,6 +2,7 @@
 from typing import List, Optional
 
 import logging
+import os
 import pyftdi.ftdi
 from pyftdi.gpio import *
 import usb.core
@@ -39,14 +40,20 @@ class FTDIDeviceManager:
             self.gpio_device2 = GpioMpsseController()
             self.gpio_device3 = GpioMpsseController()
             
-            # Try to find and use libusb1 backend
-            try:
-                import libusb_package
-                backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
-                logger.debug("Using libusb_package backend")
-            except ImportError:
-                logger.debug("libusb_package not found, using default backend")
-                backend = None
+            # Check if we're using ftd2xx backend on Windows (set in main.py)
+            import sys
+            if sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx':
+                logger.debug("Using ftd2xx backend on Windows")
+                backend = None  # No PyUSB backend needed for ftd2xx
+            else:
+                # Try to find and use libusb1 backend
+                try:
+                    import libusb_package
+                    backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
+                    logger.debug("Using libusb_package backend")
+                except ImportError:
+                    logger.debug("libusb_package not found, using default backend")
+                    backend = None
             
             # First check with PyUSB directly to see what USB devices are connected
             logger.debug("Checking USB devices with usb.core.find()")

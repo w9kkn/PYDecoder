@@ -11,17 +11,23 @@ import logging
 import sys
 import os
 
-# Try to initialize libusb backend early
-try:
-    import usb.backend.libusb1
-    import libusb_package
-    backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
-    if backend:
-        print("Successfully initialized libusb_package backend")
-except ImportError:
-    print("libusb_package not available, using default backend")
-except Exception as e:
-    print(f"Error initializing libusb backend: {e}")
+# Configure USB backend based on platform
+if sys.platform == 'win32':
+    # Use ftd2xx backend on Windows
+    os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+    print("Using ftd2xx backend on Windows")
+else:
+    # Try to initialize libusb backend on non-Windows platforms
+    try:
+        import usb.backend.libusb1
+        import libusb_package
+        backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
+        if backend:
+            print("Successfully initialized libusb_package backend")
+    except ImportError:
+        print("libusb_package not available, using default backend")
+    except Exception as e:
+        print(f"Error initializing libusb backend: {e}")
 
 from pydecoder import __version__
 from pydecoder.ui.main_window import DecoderUI
