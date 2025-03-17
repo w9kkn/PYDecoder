@@ -22,6 +22,8 @@ class AntennaGenius:
                              displayed in the UI.
         """
         self.status_callback = status_callback
+        self.socket = None
+        self.command_counter = 0
     
     def set_antenna(self, ip_address: str, tcp_port: int, radio_nr: str, antenna_port: int) -> bool:
         """Send antenna selection command to AntennaGenius.
@@ -35,16 +37,22 @@ class AntennaGenius:
         Returns:
             bool: True if command was sent successfully, False otherwise
         """
-        # Format the command string
-        # Example: "C0|port set 1 band=2"
-        command_str = f"C1|port set {radio_nr} band={antenna_port} \n"
+        # Increment command counter and wrap around at 100
+        self.command_counter = (self.command_counter + 1) % 100
+        
+        # Format the command string with incrementing counter
+        # Example: "C42|port set 1 band=2"
+        command_str = f"C{self.command_counter}|port set {radio_nr} band={antenna_port} \n"
 
         try:
-            # Using context manager to ensure socket is properly closed
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(0.5)  # Timeout after 0.5 seconds
-                sock.connect((ip_address, tcp_port))
-                sock.sendall(bytes(command_str, 'utf-8'))
+            # Create socket connection if not already connected
+            if self.socket is None:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.socket.settimeout(0.5)  # Timeout after 0.5 seconds
+                self.socket.connect((ip_address, tcp_port))
+                
+            # Send command
+            self.socket.sendall(bytes(command_str, 'utf-8'))
                 
             if self.status_callback:
                 self.status_callback("AG Message Delivered!")
@@ -56,28 +64,43 @@ class AntennaGenius:
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Address error")
             logger.error(error_msg)
+            self.socket = None  # Reset socket on error
             return False
         except socket.timeout as e:
             error_msg = f"AntennaGenius connection timeout: {ip_address}:{tcp_port} - {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Connection timeout")
             logger.error(error_msg)
+            self.socket = None  # Reset socket on error
             return False
         except ConnectionRefusedError as e:
             error_msg = f"AntennaGenius connection refused: {ip_address}:{tcp_port} - {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Connection refused")
             logger.error(error_msg)
+            self.socket = None  # Reset socket on error
             return False
         except socket.error as e:
             error_msg = f"AntennaGenius socket error: {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Socket error")
             logger.error(error_msg)
+            self.socket = None  # Reset socket on error
             return False
         except OSError as e:
             error_msg = f"AntennaGenius OS error: {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! OS error")
             logger.error(error_msg)
+            self.socket = None  # Reset socket on error
             return False
+            
+    def close(self) -> None:
+        """Close the socket connection."""
+        if self.socket is not None:
+            try:
+                self.socket.close()
+            except Exception as e:
+                logger.error(f"Error closing AntennaGenius socket: {e}")
+            finally:
+                self.socket = None
