@@ -40,6 +40,7 @@ jobs:
         
     - name: Build executable
       run: |
+        $env:UV_LINK_MODE = "copy"
         uv run PyInstaller --onefile --noconsole --name PYDecoder main.py
     
     - name: Rename executable with version
