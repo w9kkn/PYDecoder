@@ -215,7 +215,7 @@ class DecoderUI:
             logger.error(f"Error in main loop: {e}")
         finally:
             # Cleanup happens in on_closing
-
+            pass
 
     def on_closing(self) -> None:
         """Handle window close event.
