@@ -28,13 +28,15 @@ class DecoderEngine:
     def __init__(
         self, 
         settings: Dict[str, Any], 
-        status_callback: Optional[Callable[[str], None]] = None
+        status_callback: Optional[Callable[[str], None]] = None,
+        simulation_mode: bool = False
     ) -> None:
         """Initialize the decoder engine.
         
         Args:
             settings: Application settings dictionary
             status_callback: Optional callback for status updates
+            simulation_mode: If True, runs FTDI in simulation mode (no actual hardware access)
         """
         logger.info("Initializing decoder engine")
         
@@ -42,10 +44,16 @@ class DecoderEngine:
         self.settings = settings
         self.is_active = False
         self.radio_freq = 0
+        self.simulation_mode = simulation_mode
+        
+        # Check if simulation mode is forced via settings
+        if settings.get("enable_simulation_mode", False):
+            self.simulation_mode = True
+            logger.info("Simulation mode enabled via settings")
         
         # Initialize components
         logger.info("Initializing device manager")
-        self.ftdi_manager = FTDIDeviceManager()
+        self.ftdi_manager = FTDIDeviceManager(simulation_mode=self.simulation_mode)
         
         logger.info("Initializing AntennaGenius client")
         self.antenna_genius = AntennaGenius(status_callback)

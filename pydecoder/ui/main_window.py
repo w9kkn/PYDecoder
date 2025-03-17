@@ -36,7 +36,9 @@ class DecoderUI:
         self.settings = load_settings()
         
         # Initialize the engine with a status callback
-        self.engine = DecoderEngine(self.settings, self.update_ag_status)
+        # Check if there's a setting to force simulation mode
+        simulation_mode = self.settings.get("enable_simulation_mode", False)
+        self.engine = DecoderEngine(self.settings, self.update_ag_status, simulation_mode=simulation_mode)
         
         # Create UI
         logger.info("Building user interface")
@@ -133,12 +135,47 @@ class DecoderUI:
         
         This tab displays the list of detected FTDI devices with their URLs.
         These devices are used for BCD output to control band-pass filters.
+        It also includes an option to enable simulation mode.
         """
         tk.Label(self.tab3, text="FTDI Device URLs:").grid(row=0)
         
         device_urls = self.engine.get_device_urls()
         for i, url in enumerate(device_urls):
             tk.Label(self.tab3, text=url).grid(row=i+1)
+            
+        # Add simulation mode checkbox
+        row = len(device_urls) + 2  # Skip a row
+        
+        # Display simulation status
+        if self.engine.simulation_mode:
+            status_text = "Running in SIMULATION mode (no hardware access)"
+            status_color = "red"
+        else:
+            status_text = "Running in HARDWARE mode (normal operation)"
+            status_color = "green"
+            
+        tk.Label(self.tab3, text=status_text, fg=status_color, font=("Helvetica", 10, "bold")).grid(row=row, columnspan=2)
+        
+        # Add checkbox to enable simulation mode on next startup
+        self.sim_var = tk.BooleanVar(value=self.settings.get("enable_simulation_mode", False))
+        row += 1
+        tk.Label(self.tab3, text="Enable simulation mode on next startup:").grid(row=row, sticky="w")
+        sim_check = tk.Checkbutton(
+            self.tab3, 
+            variable=self.sim_var,
+            command=self.toggle_simulation
+        )
+        sim_check.grid(row=row, column=1, sticky="w")
+        
+        # If in simulation mode, add explanation
+        if self.engine.simulation_mode:
+            row += 1
+            explanation = (
+                "Simulation mode is enabled. BCD outputs will be logged but not sent to hardware.\n"
+                "This allows the program to run on Windows systems with driver issues.\n"
+                "Restart the application to apply changes to simulation mode."
+            )
+            tk.Label(self.tab3, text=explanation, justify=tk.LEFT, wraplength=400).grid(row=row, columnspan=2, sticky="w")
     
     def load_settings_to_ui(self) -> None:
         """Load settings from config into UI elements.
@@ -151,6 +188,11 @@ class DecoderUI:
         self.ag_tcp_port_entry.insert(0, self.settings[AG_TCP_PORT_KEY])
         self.ag_rf_port_entry.insert(0, self.settings[AG_RF_PORT_KEY])
     
+    def toggle_simulation(self) -> None:
+        """Toggle the simulation mode setting."""
+        self.settings["enable_simulation_mode"] = self.sim_var.get()
+        logger.info(f"Simulation mode for next startup set to: {self.sim_var.get()}")
+    
     def update_settings_from_ui(self) -> None:
         """Update settings from UI elements.
         
@@ -161,7 +203,8 @@ class DecoderUI:
             LOGGER_UDP_KEY: self.logger_port_entry.get(),
             AG_IP_KEY: self.ag_ip_entry.get(),
             AG_TCP_PORT_KEY: self.ag_tcp_port_entry.get(),
-            AG_RF_PORT_KEY: self.ag_rf_port_entry.get()
+            AG_RF_PORT_KEY: self.ag_rf_port_entry.get(),
+            "enable_simulation_mode": self.sim_var.get() if hasattr(self, 'sim_var') else False
         }
     
     def switch(self) -> None:
