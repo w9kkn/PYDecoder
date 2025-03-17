@@ -47,51 +47,38 @@ class FTDIDeviceManager:
             # FTDI vendors: 0x0403
             ftdi_devices = [dev for dev in usb_devices if dev.idVendor == 0x0403]
             logger.debug(f"Found {len(ftdi_devices)} FTDI USB devices:")
+            
+            # Only focus on the product ID 0x6014 (C232HM-EDHSL-0)
+            target_devices = []
             for idx, dev in enumerate(ftdi_devices):
                 try:
-                    manufacturer = usb.util.get_string(dev, dev.iManufacturer)
-                    product = usb.util.get_string(dev, dev.iProduct)
-                    serial = usb.util.get_string(dev, dev.iSerialNumber)
                     logger.debug(f"  Device {idx}: Vendor ID: 0x{dev.idVendor:04x}, Product ID: 0x{dev.idProduct:04x}")
-                    logger.debug(f"    Manufacturer: {manufacturer}, Product: {product}, Serial: {serial}")
-                except Exception as e:
-                    logger.debug(f"  Device {idx}: Vendor ID: 0x{dev.idVendor:04x}, Product ID: 0x{dev.idProduct:04x}")
-                    logger.debug(f"    Error getting string descriptors: {e}")
-            
-            # Now use pyftdi to list devices
-            logger.debug("Calling pyftdi.ftdi.Ftdi.list_devices() to find FTDI devices")
-            gpio_devices = pyftdi.ftdi.Ftdi.list_devices()
-            
-            logger.debug(f"Raw device list returned by pyftdi: {gpio_devices}")
-            
-            for device_idx in range(len(gpio_devices)):
-                try:
-                    device_info = gpio_devices[device_idx][0]
-                    logger.debug(f"Processing device index {device_idx}, device info: {device_info}")
                     
-                    # Extract device product name more cautiously
-                    device_product = None
-                    if len(device_info) >= 7:
-                        device_product = device_info[6]
-                    
-                    logger.debug(f"Device product name: {device_product}")
-                    
-                    # Match for C232HM-EDHSL-0 or any FTDI device if we're in a pinch
-                    if device_product == "C232HM-EDHSL-0" or (self.device_count == 0 and device_product and "FTDI" in device_product):
-                        # Extract serial number
-                        if len(device_info) >= 5:
-                            device_serial = str(device_info[4])
-                            device_url = f"ftdi://ftdi:232h:{device_serial}/1"
-                            logger.info(f"Found compatible FTDI device: {device_url}")
-                            self.device_urls.append(device_url)
-                        else:
-                            logger.warning(f"Device info too short, cannot extract serial number: {device_info}")
+                    # Only try to get string descriptors for the target device to avoid platform errors
+                    if dev.idProduct == 0x6014:
+                        try:
+                            manufacturer = usb.util.get_string(dev, dev.iManufacturer)
+                            product = usb.util.get_string(dev, dev.iProduct)
+                            serial = usb.util.get_string(dev, dev.iSerialNumber)
+                            logger.debug(f"    Manufacturer: {manufacturer}, Product: {product}, Serial: {serial}")
+                            
+                            # Add to target devices with the discovered serial number
+                            target_devices.append((dev, serial))
+                        except Exception as e:
+                            logger.debug(f"    Error getting string descriptors: {e}")
                     else:
-                        logger.debug(f"Skipping non-compatible device at index {device_idx}")
-                except IndexError as e:
-                    logger.warning(f"Index error processing device at index {device_idx}: {e}")
+                        logger.debug(f"    Skipping non-target device (not product ID 0x6014)")
                 except Exception as e:
-                    logger.warning(f"Error processing device at index {device_idx}: {e}")
+                    logger.debug(f"    Error accessing device: {e}")
+            
+            # Skip pyftdi discovery and use directly detected devices
+            logger.debug("Skipping pyftdi.ftdi.Ftdi.list_devices() due to platform compatibility issues")
+            
+            # Create device URLs from our direct USB detection
+            for dev, serial in target_devices:
+                device_url = f"ftdi://ftdi:232h:{serial}/1"
+                logger.info(f"Found compatible FTDI device: {device_url}")
+                self.device_urls.append(device_url)
             
             self.device_count = len(self.device_urls)
             logger.info(f"Discovered {self.device_count} FTDI devices")
