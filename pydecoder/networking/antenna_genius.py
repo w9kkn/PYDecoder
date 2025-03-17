@@ -37,7 +37,7 @@ class AntennaGenius:
         """
         # Format the command string
         # Example: "C0|port set 1 band=2"
-        command_str = f"C0|port set {radio_nr} band={antenna_port}\n"
+        command_str = f"C1|port set {radio_nr} band={antenna_port}\n"
 
         try:
             # Using context manager to ensure socket is properly closed

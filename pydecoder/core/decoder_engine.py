@@ -111,12 +111,12 @@ class DecoderEngine:
                         ag_tcp_port = 9007  # Default value
                         
                     ag_radio_number = self.settings[AG_RF_PORT_KEY]
-                    antenna_port = get_ag_band(self.radio_freq)
+                    antenna_port = get_ag_band(int(self.radio_freq))
                     
                     self.antenna_genius.set_antenna(ag_ip_address, ag_tcp_port, ag_radio_number, antenna_port)
                     
                     # Update FTDI devices
-                    bcd_value = get_bcd(self.radio_freq)
+                    bcd_value = get_bcd(int(self.radio_freq))
                     self.ftdi_manager.write_bcd(bcd_value)
                     
                     return freq
