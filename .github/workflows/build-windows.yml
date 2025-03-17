@@ -39,7 +39,7 @@ jobs:
         
     - name: Build executable
       run: |
-        pyinstaller --onefile --noconsole --name PYDecoder main.py
+        python -m PyInstaller --onefile --noconsole --name PYDecoder main.py
     
     - name: Rename executable with version
       run: |
