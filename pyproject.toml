@@ -13,6 +13,7 @@ authors = [
     {name = "W9KKN"}
 ]
 dependencies = [
+    "libusb-package>=1.0.26.1",
     "pyftdi>=0.54.0",
     "xmltodict>=0.13.0",
 ]

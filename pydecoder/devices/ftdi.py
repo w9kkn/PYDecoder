@@ -6,6 +6,8 @@ import pyftdi.ftdi
 from pyftdi.gpio import GpioMpsseController
 import usb.core
 import usb.util
+import libusb_package
+import usb.backend.libusb1
 
 logger = logging.getLogger(__name__)
 
