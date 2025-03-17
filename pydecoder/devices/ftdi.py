@@ -44,53 +44,27 @@ class FTDIDeviceManager:
             import sys
             if sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx':
                 logger.debug("Using ftd2xx backend on Windows")
-                backend = None  # No PyUSB backend needed for ftd2xx
-            else:
-                # Try to find and use libusb1 backend
-                try:
-                    import libusb_package
-                    backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
-                    logger.debug("Using libusb_package backend")
-                except ImportError:
-                    logger.debug("libusb_package not found, using default backend")
-                    backend = None
             
-            # First check with PyUSB directly to see what USB devices are connected
-            logger.debug("Checking USB devices with usb.core.find()")
-            usb_devices = list(usb.core.find(find_all=True, backend=backend))
+            # Use pyftdi's built-in device listing functionality
+            from pyftdi.ftdi import Ftdi
+            available_devices = Ftdi.list_devices()
             
-            # FTDI vendors: 0x0403
-            ftdi_devices = [dev for dev in usb_devices if dev.idVendor == 0x0403]
-            logger.debug(f"Found {len(ftdi_devices)} FTDI USB devices:")
+            logger.debug(f"Scanning for FTDI devices using pyftdi.Ftdi.list_devices()...")
             
-            # Only focus on the product ID 0x6014 (C232HM-EDHSL-0)
-            target_devices = []
-            for idx, dev in enumerate(ftdi_devices):
-                try:
-                    logger.debug(f"  Device {idx}: Vendor ID: 0x{dev.idVendor:04x}, Product ID: 0x{dev.idProduct:04x}")
-                    
-                    # Only try to get string descriptors for the target device to avoid platform errors
-                    if dev.idProduct == 0x6014:
-                        try:
-                            manufacturer = usb.util.get_string(dev, dev.iManufacturer)
-                            product = usb.util.get_string(dev, dev.iProduct)
-                            serial = usb.util.get_string(dev, dev.iSerialNumber)
-                            logger.debug(f"    Manufacturer: {manufacturer}, Product: {product}, Serial: {serial}")
-                            
-                            # Add to target devices with the discovered serial number
-                            target_devices.append((dev, serial))
-                        except Exception as e:
-                            logger.debug(f"    Error getting string descriptors: {e}")
-                    else:
-                        logger.debug(f"    Skipping non-target device (not product ID 0x6014)")
-                except Exception as e:
-                    logger.debug(f"    Error accessing device: {e}")
-
-            # Create device URLs from our direct USB detection
-            for dev, serial in target_devices:
-                device_url = f"ftdi://ftdi:232h:{serial}/1"
-                logger.info(f"Found compatible FTDI device: {device_url}")
-                self.device_urls.append(device_url)
+            # Process all devices found by pyftdi
+            for location, desc in available_devices:
+                vendor, product, sernum = desc
+                vendor_id = vendor >> 16
+                product_id = product >> 16
+                
+                logger.debug(f"Found device: Vendor ID: 0x{vendor_id:04x}, Product ID: 0x{product_id:04x}, Serial: {sernum}")
+                
+                # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
+                if vendor_id == 0x0403 and product_id == 0x6014:
+                    # Create the standard pyftdi URL
+                    device_url = f"ftdi://ftdi:232h:{sernum}/1"
+                    logger.info(f"Found compatible FTDI device: {device_url}")
+                    self.device_urls.append(device_url)
             
             self.device_count = len(self.device_urls)
             logger.info(f"Discovered {self.device_count} FTDI devices")
