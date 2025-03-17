@@ -6,7 +6,7 @@ import pyftdi.ftdi
 from pyftdi.gpio import *
 import usb.core
 import usb.util
-import usb.backend.libusb1
+import usb.backend.libusb0
 
 logger = logging.getLogger(__name__)
 
