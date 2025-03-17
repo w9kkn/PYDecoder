@@ -50,7 +50,7 @@ def get_version():
                 
             # Add local version identifier for dirty working directory
             if is_dirty:
-                version += ".dirty"
+                version += "+dirty"
                 
             return version
     except Exception as e:
