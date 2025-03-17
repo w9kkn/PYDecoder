@@ -175,8 +175,13 @@ class FTDIDeviceManager:
             # Set backend explicitly to help debugging
             if backend != 'default':
                 logger.debug(f"Setting PyFTDI backend to: {backend}")
-                Ftdi.add_custom_vendor(0x0403, 'FTDI')
-                Ftdi.add_custom_product(0x0403, 0x6014, 'FT232H')
+                try:
+                    # Only add vendor/product if not already registered
+                    Ftdi.add_custom_vendor(0x0403, 'FTDI')
+                    Ftdi.add_custom_product(0x0403, 0x6014, 'FT232H')
+                except ValueError as e:
+                    # This is expected if already registered, so log at debug level
+                    logger.debug(f"FTDI vendor/product already registered: {e}")
             
             # On Windows, try direct device detection as fallback
             if sys.platform == 'win32' and 'ftd2xx' in sys.modules:
@@ -275,16 +280,53 @@ class FTDIDeviceManager:
                 
         except pyftdi.ftdi.FtdiError as e:
             logger.error(f"FTDI driver error discovering devices: {e}")
+            if self.simulation_mode:
+                logger.info("Already in simulation mode, continuing with virtual device")
+            else:
+                logger.warning("FTDI driver error, switching to simulation mode")
+                self.simulation_mode = True
+                # Create a simulated device for testing
+                self.device_urls = ["ftdi://simulation:232h:SIM00001/1"]
+                self.device_count = 1
         except ImportError as e:
             logger.error(f"Missing FTDI driver dependency: {e}")
+            if not self.simulation_mode:
+                logger.warning("Missing driver dependency, switching to simulation mode")
+                self.simulation_mode = True
+                self.device_urls = ["ftdi://simulation:232h:SIM00001/1"]
+                self.device_count = 1
         except ValueError as e:
-            logger.error(f"Invalid value during FTDI device discovery: {e}")
+            if "already registered" in str(e).lower():
+                logger.warning(f"Vendor/product registration issue: {e}")
+                # This is not a fatal error, continue with discovery
+            else:
+                logger.error(f"Invalid value during FTDI device discovery: {e}")
+                if not self.simulation_mode:
+                    logger.warning("Value error during device discovery, switching to simulation mode")
+                    self.simulation_mode = True
+                    self.device_urls = ["ftdi://simulation:232h:SIM00001/1"]
+                    self.device_count = 1
         except OSError as e:
             logger.error(f"OS error accessing FTDI devices: {e}")
+            if not self.simulation_mode:
+                logger.warning("OS error accessing devices, switching to simulation mode")
+                self.simulation_mode = True
+                self.device_urls = ["ftdi://simulation:232h:SIM00001/1"]
+                self.device_count = 1
         except IndexError as e:
             logger.error(f"Index error processing FTDI device list: {e}")
+            if not self.simulation_mode:
+                logger.warning("Error processing device list, switching to simulation mode")
+                self.simulation_mode = True
+                self.device_urls = ["ftdi://simulation:232h:SIM00001/1"]
+                self.device_count = 1
         except Exception as e:
             logger.error(f"Unexpected error discovering FTDI devices: {e}", exc_info=True)
+            if not self.simulation_mode:
+                logger.warning("Unexpected error during device discovery, switching to simulation mode")
+                self.simulation_mode = True
+                self.device_urls = ["ftdi://simulation:232h:SIM00001/1"]
+                self.device_count = 1
     
     def _configure_devices(self) -> None:
         """Configure discovered FTDI devices."""

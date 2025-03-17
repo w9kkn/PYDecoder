@@ -50,6 +50,8 @@ class DecoderEngine:
         if settings.get("enable_simulation_mode", False):
             self.simulation_mode = True
             logger.info("Simulation mode enabled via settings")
+        elif "enable_simulation_mode" in settings:
+            logger.debug(f"Simulation mode setting found in config: {settings['enable_simulation_mode']}")
         
         # Initialize components
         logger.info("Initializing device manager")

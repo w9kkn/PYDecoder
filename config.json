@@ -3,5 +3,6 @@
     "logger_udp": "12060",
     "AG_1_IP": "192.168.100.140",
     "AG_1_UDP_Port": "9007",
-    "AG_1_RF_Port": "1"
+    "AG_1_RF_Port": "1",
+    "enable_simulation_mode": false
 }

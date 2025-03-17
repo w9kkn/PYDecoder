@@ -24,6 +24,7 @@ LOGGER_UDP_KEY = "logger_udp"
 AG_IP_KEY = "AG_1_IP"
 AG_TCP_PORT_KEY = "AG_1_UDP_Port"  
 AG_RF_PORT_KEY = "AG_1_RF_Port"
+SIM_MODE_KEY = "enable_simulation_mode"
 
 # Configuration validation schema
 CONFIG_SCHEMA = {
@@ -31,7 +32,8 @@ CONFIG_SCHEMA = {
     LOGGER_UDP_KEY: {"type": str, "default": "12060", "required": True},
     AG_IP_KEY: {"type": str, "default": "192.168.100.140", "required": True},
     AG_TCP_PORT_KEY: {"type": str, "default": "9007", "required": True},
-    AG_RF_PORT_KEY: {"type": str, "default": "1", "required": True}
+    AG_RF_PORT_KEY: {"type": str, "default": "1", "required": True},
+    SIM_MODE_KEY: {"type": bool, "default": False, "required": False}
 }
 
 # Configuration file locations
