@@ -4,6 +4,8 @@ from typing import List, Optional
 import logging
 import pyftdi.ftdi
 from pyftdi.gpio import GpioMpsseController
+import usb.core
+import usb.util
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +38,66 @@ class FTDIDeviceManager:
             self.gpio_device2 = GpioMpsseController()
             self.gpio_device3 = GpioMpsseController()
             
+            # First check with PyUSB directly to see what USB devices are connected
+            logger.debug("Checking USB devices with usb.core.find()")
+            usb_devices = list(usb.core.find(find_all=True))
+            
+            # FTDI vendors: 0x0403
+            ftdi_devices = [dev for dev in usb_devices if dev.idVendor == 0x0403]
+            logger.debug(f"Found {len(ftdi_devices)} FTDI USB devices:")
+            for idx, dev in enumerate(ftdi_devices):
+                try:
+                    manufacturer = usb.util.get_string(dev, dev.iManufacturer)
+                    product = usb.util.get_string(dev, dev.iProduct)
+                    serial = usb.util.get_string(dev, dev.iSerialNumber)
+                    logger.debug(f"  Device {idx}: Vendor ID: 0x{dev.idVendor:04x}, Product ID: 0x{dev.idProduct:04x}")
+                    logger.debug(f"    Manufacturer: {manufacturer}, Product: {product}, Serial: {serial}")
+                except Exception as e:
+                    logger.debug(f"  Device {idx}: Vendor ID: 0x{dev.idVendor:04x}, Product ID: 0x{dev.idProduct:04x}")
+                    logger.debug(f"    Error getting string descriptors: {e}")
+            
+            # Now use pyftdi to list devices
+            logger.debug("Calling pyftdi.ftdi.Ftdi.list_devices() to find FTDI devices")
             gpio_devices = pyftdi.ftdi.Ftdi.list_devices()
             
+            logger.debug(f"Raw device list returned by pyftdi: {gpio_devices}")
+            
             for device_idx in range(len(gpio_devices)):
-                if gpio_devices[device_idx][0][6] == "C232HM-EDHSL-0":
-                    self.device_urls.append(f"ftdi://ftdi:232h:{str(gpio_devices[device_idx][0][4])}/1")
+                try:
+                    device_info = gpio_devices[device_idx][0]
+                    logger.debug(f"Processing device index {device_idx}, device info: {device_info}")
+                    
+                    # Extract device product name more cautiously
+                    device_product = None
+                    if len(device_info) >= 7:
+                        device_product = device_info[6]
+                    
+                    logger.debug(f"Device product name: {device_product}")
+                    
+                    # Match for C232HM-EDHSL-0 or any FTDI device if we're in a pinch
+                    if device_product == "C232HM-EDHSL-0" or (self.device_count == 0 and device_product and "FTDI" in device_product):
+                        # Extract serial number
+                        if len(device_info) >= 5:
+                            device_serial = str(device_info[4])
+                            device_url = f"ftdi://ftdi:232h:{device_serial}/1"
+                            logger.info(f"Found compatible FTDI device: {device_url}")
+                            self.device_urls.append(device_url)
+                        else:
+                            logger.warning(f"Device info too short, cannot extract serial number: {device_info}")
+                    else:
+                        logger.debug(f"Skipping non-compatible device at index {device_idx}")
+                except IndexError as e:
+                    logger.warning(f"Index error processing device at index {device_idx}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error processing device at index {device_idx}: {e}")
             
             self.device_count = len(self.device_urls)
             logger.info(f"Discovered {self.device_count} FTDI devices")
+            
+            if self.device_count == 0:
+                logger.warning("No compatible FTDI devices found. Please check device connection and driver installation.")
+                logger.warning("Device detection requires FTDI C232HM-EDHSL-0 device or compatible.")
+                
         except pyftdi.ftdi.FtdiError as e:
             logger.error(f"FTDI driver error discovering devices: {e}")
         except ImportError as e:
@@ -55,7 +109,7 @@ class FTDIDeviceManager:
         except IndexError as e:
             logger.error(f"Index error processing FTDI device list: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error discovering FTDI devices: {e}")
+            logger.error(f"Unexpected error discovering FTDI devices: {e}", exc_info=True)
     
     def _configure_devices(self) -> None:
         """Configure discovered FTDI devices."""

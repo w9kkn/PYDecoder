@@ -8,11 +8,16 @@ import os
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('pydecoder.log')
+    ]
 )
 
 # Create a logger for the package
 logger = logging.getLogger('pydecoder')
+logger.setLevel(logging.DEBUG)
 
 # Get version from git describe or fallback to default
 def get_version():
