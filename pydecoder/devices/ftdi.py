@@ -2,7 +2,7 @@
 from typing import List, Optional
 
 import logging
-import pyftdi
+import pyftdi.ftdi
 from pyftdi.gpio import GpioMpsseController
 
 logger = logging.getLogger(__name__)
