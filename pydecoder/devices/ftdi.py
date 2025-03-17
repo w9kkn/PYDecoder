@@ -169,8 +169,8 @@ class FTDIDeviceManager:
             # Use pyftdi's built-in device listing functionality
             from pyftdi.ftdi import Ftdi
             
-            # Debug: log available backends
-            logger.debug(f"Available PyFTDI backends: {', '.join(Ftdi.list_backends())}")
+            # Debug: log current backend
+            logger.debug(f"Using PyFTDI backend: {backend}")
             
             # Set backend explicitly to help debugging
             if backend != 'default':
@@ -204,23 +204,67 @@ class FTDIDeviceManager:
             
             # If we found devices via direct detection, skip PyFTDI detection
             if not self.device_urls:
-                logger.debug("Scanning for FTDI devices using pyftdi.Ftdi.list_devices()...")
-                available_devices = Ftdi.list_devices()
-                
-                # Process all devices found by pyftdi
-                for location, desc in available_devices:
-                    vendor, product, sernum = desc
-                    vendor_id = vendor >> 16
-                    product_id = product >> 16
+                logger.debug("Scanning for FTDI devices using PyUSB direct device enumeration...")
+                try:
+                    # Use pyusb directly to enumerate devices
+                    import usb.core
+                    import usb.util
                     
-                    logger.debug(f"Found device: Vendor ID: 0x{vendor_id:04x}, Product ID: 0x{product_id:04x}, Serial: {sernum}")
+                    # Find all devices from FTDI (vendor ID 0x0403)
+                    devices = list(usb.core.find(find_all=True, idVendor=0x0403))
+                    logger.debug(f"PyUSB found {len(devices)} FTDI devices")
                     
-                    # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
-                    if vendor_id == 0x0403 and product_id == 0x6014:
-                        # Create the standard pyftdi URL
-                        device_url = f"ftdi://ftdi:232h:{sernum}/1"
-                        logger.info(f"Found compatible FTDI device: {device_url}")
-                        self.device_urls.append(device_url)
+                    for i, device in enumerate(devices):
+                        try:
+                            vendor_id = device.idVendor
+                            product_id = device.idProduct
+                            logger.debug(f"USB device {i}: vendor=0x{vendor_id:04x}, product=0x{product_id:04x}")
+                            
+                            # Try to get serial number
+                            try:
+                                serial = usb.util.get_string(device, device.iSerialNumber)
+                            except:
+                                serial = f"UNKNOWN{i}"
+                                logger.warning(f"Could not get serial number for device {i}, using placeholder: {serial}")
+                            
+                            # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
+                            # Ignore FT232R (product ID 0x6001) devices
+                            if product_id == 0x6014:
+                                # Create the standard pyftdi URL
+                                device_url = f"ftdi://ftdi:232h:{serial}/1"
+                                logger.info(f"Found compatible FTDI device: {device_url}")
+                                self.device_urls.append(device_url)
+                        except Exception as e:
+                            logger.warning(f"Error processing USB device {i}: {e}")
+                except Exception as e:
+                    logger.error(f"Error during direct PyUSB device enumeration: {e}")
+                    logger.warning("Falling back to pyftdi device enumeration")
+                    
+                    # Fallback to pyftdi's device enumeration if available
+                    try:
+                        logger.debug("Scanning for FTDI devices using pyftdi.Ftdi.find_all()...")
+                        # Try a different method if list_devices() is not available
+                        ft = Ftdi()
+                        ft.find_all(vendor=0x0403, product=None)
+                        for device in ft.usb_dev_list:
+                            try:
+                                vendor_id = device.idVendor
+                                product_id = device.idProduct
+                                serial = usb.util.get_string(device, device.iSerialNumber)
+                                
+                                logger.debug(f"Found device: Vendor ID: 0x{vendor_id:04x}, Product ID: 0x{product_id:04x}, Serial: {serial}")
+                                
+                                # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
+                                # Ignore FT232R (product ID 0x6001) devices
+                                if product_id == 0x6014:
+                                    # Create the standard pyftdi URL
+                                    device_url = f"ftdi://ftdi:232h:{serial}/1"
+                                    logger.info(f"Found compatible FTDI device: {device_url}")
+                                    self.device_urls.append(device_url)
+                            except Exception as e:
+                                logger.warning(f"Error processing PyFTDI device: {e}")
+                    except Exception as e:
+                        logger.error(f"Error during PyFTDI device enumeration fallback: {e}")
             
             self.device_count = len(self.device_urls)
             logger.info(f"Discovered {self.device_count} FTDI devices")
@@ -374,6 +418,11 @@ class FTDIDeviceManager:
                     try:
                         # Use direct FTDI API for Windows
                         ftdi_device = gpio._ftdi
+                        
+                        # Check if ftdi_device has write_data method
+                        if not hasattr(ftdi_device, 'write_data'):
+                            logger.error(f"FTDI device {device_num} doesn't have write_data method")
+                            continue
                         
                         # Prepare command buffer for MPSSE mode
                         # Set all 8 bits of the ADBUS port to the BCD value
