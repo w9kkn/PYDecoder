@@ -13,7 +13,7 @@ import os
 
 # Configure logging first
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     filename='pydecoder.log',
     filemode='w'
@@ -21,8 +21,7 @@ logging.basicConfig(
 
 # Add console handler for important messages
 console_handler = logging.StreamHandler()
-# Using INFO level to show basic status updates but not excessive debug information
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 logging.getLogger().addHandler(console_handler)
@@ -34,28 +33,33 @@ logger = logging.getLogger()
 libusb_loaded = False
 ftd2xx_loaded = False
 
-if sys.platform == 'win32':
-    # On Windows, we exclusively use ftd2xx backend
+
+# We exclusively use ftd2xx backend on all platforms
+try:
+    # First ensure the environment variable is set before any pyftdi import
+    os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+    
+    # Now try to import and initialize ftd2xx
+    import ftd2xx
+    logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
+    ftd2xx_loaded = True
+    logger.info("Using ftd2xx backend - this is the only backend we're using")
+    
+    # Explicitly register the FTDI device types with pyftdi
     try:
-        import ftd2xx
-        logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
-        os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
-        ftd2xx_loaded = True
-        logger.info("Using ftd2xx backend - this is the only backend we're using")
-    except ImportError:
-        logger.error("ftd2xx driver not available. It is required for this application.")
-        logger.error("Please install ftd2xx package with: pip install ftd2xx")
-        ftd2xx_loaded = False
-else:
-    # For other platforms, we'll still use ftd2xx if available
-    try:
-        import ftd2xx
-        logger.info("Successfully imported ftd2xx driver")
-        os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
-        ftd2xx_loaded = True
-    except ImportError:
-        logger.warning("ftd2xx driver not available")
-        ftd2xx_loaded = False
+        import pyftdi.ftdi
+        # Register FTDI vendor/product IDs
+        pyftdi.ftdi.Ftdi.add_custom_vendor(0x0403, 'FTDI')
+        pyftdi.ftdi.Ftdi.add_custom_product(0x0403, 0x6014, 'FT232H')  # FT232H
+        pyftdi.ftdi.Ftdi.add_custom_product(0x0403, 0x6001, 'FT232R')  # FT232R
+        logger.info("Registered FTDI device types with pyftdi")
+    except Exception as e:
+        logger.warning(f"Error registering device types with pyftdi: {e}")
+        
+except ImportError:
+    logger.error("ftd2xx driver not available. It is required for this application.")
+    logger.error("Please install ftd2xx package with: pip install ftd2xx")
+    ftd2xx_loaded = False
 
 from pydecoder import __version__
 from pydecoder.ui.main_window import DecoderUI

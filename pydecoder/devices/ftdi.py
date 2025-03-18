@@ -61,7 +61,14 @@ class FTDIDeviceManager:
         self.configured_devices: list = []
         
         # Check if we should use simulation mode
-        if sys.platform == 'win32' and not simulation_mode:
+        # First, make sure our environment is set up for ftd2xx
+        if not simulation_mode:
+            # Always ensure we're using ftd2xx backend
+            current_backend = os.environ.get('PYFTDI_BACKEND', '')
+            if current_backend != 'ftd2xx':
+                logger.info("Setting PYFTDI_BACKEND to ftd2xx")
+                os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+            
             # Check if ftd2xx is available and working
             has_backend = False
             
@@ -76,12 +83,22 @@ class FTDIDeviceManager:
                 except Exception as e:
                     logger.warning(f"ftd2xx available but not functional: {e}")
             except ImportError:
-                logger.warning("ftd2xx not available on Windows")
+                logger.warning("ftd2xx not available, required for hardware mode")
                 
             # If ftd2xx is not available or not working, switch to simulation mode
             if not has_backend:
-                logger.warning("No working ftd2xx backend found on Windows. Switching to simulation mode.")
+                logger.warning("No working ftd2xx backend found. Switching to simulation mode.")
                 self.simulation_mode = True
+            else:
+                # Register FTDI vendor/product IDs to ensure pyftdi can use them
+                try:
+                    from pyftdi.ftdi import Ftdi
+                    Ftdi.add_custom_vendor(0x0403, 'FTDI')
+                    Ftdi.add_custom_product(0x0403, 0x6014, 'FT232H')
+                    Ftdi.add_custom_product(0x0403, 0x6001, 'FT232R')
+                    logger.debug("Registered FTDI vendor and product IDs with pyftdi")
+                except Exception as e:
+                    logger.warning(f"Failed to register FTDI IDs with pyftdi: {e}")
         
         if not self.simulation_mode:
             self._discover_devices()
@@ -285,6 +302,21 @@ class FTDIDeviceManager:
                                 # Create a new controller to avoid issues with previous configuration attempts
                                 self.gpio_device0 = GpioMpsseController()
                                 
+                                # Explicit backend configuration
+                                # Check if we need to re-import the backend
+                                try:
+                                    import ftd2xx
+                                    logger.debug("Imported ftd2xx for device configuration")
+                                except ImportError:
+                                    logger.error("Could not import ftd2xx - required for device 0 configuration")
+                                    raise
+                                
+                                # First ensure backend is explicitly set
+                                from pyftdi.ftdi import Ftdi
+                                # Print current backend to debug
+                                current_backend = os.environ.get('PYFTDI_BACKEND', 'unknown')
+                                logger.debug(f"Current PYFTDI_BACKEND before configure: {current_backend}")
+                                
                                 # Use simpler configuration approach
                                 self.gpio_device0.configure(
                                     url, 
@@ -297,7 +329,23 @@ class FTDIDeviceManager:
                                 if 0 not in self.configured_devices:
                                     self.configured_devices.append(0)
                             except Exception as e:
-                                logger.error(f"Error configuring device 0: {e}")
+                                if "No backend available" in str(e):
+                                    logger.error(f"No backend available for device 0 configuration. Make sure ftd2xx is properly installed.")
+                                    logger.error(f"Current backend setting: {os.environ.get('PYFTDI_BACKEND', 'Not set')}")
+                                    # Try to reinitialize the backend
+                                    try:
+                                        from pyftdi.backend.backend import UsbBackend
+                                        # Get the available backends
+                                        backends = UsbBackend.list_backends()
+                                        logger.debug(f"Available backends: {backends}")
+                                        if 'ftd2xx' in backends:
+                                            logger.debug("ftd2xx backend is available but not being used")
+                                        else:
+                                            logger.error("ftd2xx backend is not available in pyftdi")
+                                    except Exception as backend_error:
+                                        logger.error(f"Error checking backends: {backend_error}")
+                                else:
+                                    logger.error(f"Error configuring device 0: {e}")
                                 # Fall back to simulation for this device
                                 self.gpio_device0 = None
                         elif device_idx == 1 and self.gpio_device1:
