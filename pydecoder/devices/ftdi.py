@@ -6,8 +6,6 @@ import os
 import sys
 import pyftdi.ftdi
 from pyftdi.gpio import GpioMpsseController
-import usb.core
-import usb.util
 
 logger = logging.getLogger(__name__)
 
@@ -16,45 +14,19 @@ if sys.platform == 'win32':
     backend = os.environ.get('PYFTDI_BACKEND', '')
     if backend == 'ftd2xx':
         logger.debug("Using ftd2xx backend as configured in main.py")
-    elif backend == 'libusb':
-        logger.debug("Using libusb backend as configured in main.py")
     else:
-        logger.debug("No backend configured yet, selecting one now")
-        
-        # Try ftd2xx first (more reliable on Windows)
+        # Always ensure we're using ftd2xx on Windows
         try:
             import ftd2xx
             logger.debug("Successfully imported ftd2xx driver")
             os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
             logger.info("Using ftd2xx backend on Windows")
         except ImportError:
-            logger.warning("ftd2xx driver not available on Windows")
-            
-            # Fall back to libusb if available
-            try:
-                import usb.backend.libusb1
-                # Check local DLL first
-                libusb_dll_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'libusb-1.0.dll')
-                if os.path.exists(libusb_dll_path):
-                    backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
-                    if backend:
-                        logger.debug("Successfully initialized libusb1 backend with local DLL")
-                        os.environ['PYFTDI_BACKEND'] = 'libusb'
-                        logger.info("Using libusb backend on Windows (direct DLL)")
-                    else:
-                        logger.warning("Could not initialize libusb1 backend with local DLL")
-                else:
-                    logger.warning("libusb-1.0.dll not found in application directory")
-            except ImportError:
-                logger.warning("libusb1 backend not available on Windows")
-            except Exception as e:
-                logger.warning(f"Error initializing libusb1 backend: {e}")
-    
-    # Log final backend status if nothing worked
-    if 'PYFTDI_BACKEND' not in os.environ:
-        logger.warning("No USB backend successfully initialized on Windows. Device detection may fail.")
-        # Create a dummy environment variable so we can check if neither backend worked
-        os.environ['PYFTDI_BACKEND'] = 'none'
+            logger.error("ftd2xx driver not available on Windows. It is required for this application.")
+            logger.error("Please install ftd2xx package with: pip install ftd2xx")
+            # We'll still set the backend to ftd2xx even though it's not available
+            # This ensures we don't try to use libusb
+            os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
 
 class FTDIDeviceManager:
     """Manager for FTDI devices.
@@ -87,36 +59,25 @@ class FTDIDeviceManager:
         
         # Check if we should use simulation mode
         if sys.platform == 'win32' and not simulation_mode:
-            # Try to detect if we have any viable backends on Windows
+            # Check if ftd2xx is available and working
             has_backend = False
             
-            # Check if ftd2xx is available
             try:
                 import ftd2xx
-                has_backend = True
+                # Try to check if ftd2xx is functional by listing devices
+                try:
+                    device_count = ftd2xx.createDeviceInfoList()
+                    if device_count >= 0:  # Valid response, even if 0 devices
+                        has_backend = True
+                        logger.debug(f"ftd2xx is functional, found {device_count} devices")
+                except Exception as e:
+                    logger.warning(f"ftd2xx available but not functional: {e}")
             except ImportError:
-                logger.warning("ftd2xx not available")
+                logger.warning("ftd2xx not available on Windows")
                 
-            # Check if libusb backend is working
-            try:
-                import usb.core
-                import usb.backend.libusb1
-                libusb_dll_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'libusb-1.0.dll')
-                if os.path.exists(libusb_dll_path):
-                    backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
-                    if backend:
-                        # Try to enumerate devices to see if the backend is functional
-                        devices = list(usb.core.find(find_all=True, backend=backend))
-                        if devices:
-                            has_backend = True
-                    else:
-                        logger.warning("libusb backend initialization failed")
-            except Exception as e:
-                logger.warning(f"Error checking libusb backend: {e}")
-                
-            # If no backend is available on Windows, automatically switch to simulation mode
+            # If ftd2xx is not available or not working, switch to simulation mode
             if not has_backend:
-                logger.warning("No working USB backend found on Windows. Switching to simulation mode.")
+                logger.warning("No working ftd2xx backend found on Windows. Switching to simulation mode.")
                 self.simulation_mode = True
         
         if not self.simulation_mode:
@@ -129,7 +90,7 @@ class FTDIDeviceManager:
             self.device_count = 1
     
     def _discover_devices(self) -> None:
-        """Discover connected FTDI devices."""
+        """Discover connected FTDI devices using only ftd2xx."""
         try:
             self.gpio_device1 = GpioMpsseController()
             self.gpio_device2 = GpioMpsseController()
@@ -156,131 +117,58 @@ class FTDIDeviceManager:
                     # This is expected if already registered, so log at debug level
                     logger.debug(f"FTDI vendor/product already registered: {e}")
             
-            # On Windows, try direct device detection as fallback
-            if sys.platform == 'win32' and 'ftd2xx' in sys.modules:
-                try:
-                    logger.debug("Attempting direct ftd2xx device detection")
-                    import ftd2xx  # Import directly within this scope
-                    device_count = ftd2xx.createDeviceInfoList()
-                    logger.debug(f"ftd2xx reports {device_count} devices")
-                    
-                    for i in range(device_count):
-                        device_info = ftd2xx.getDeviceInfoDetail(i)
-                        if device_info:
-                            # Safer access to device details with fallbacks
-                            try:
-                                flags = device_info.get("Flags", 0)
-                                device_type = device_info.get("Type", 0)
-                                device_id = device_info.get("ID", 0) 
-                                description = device_info.get("Description", b"Unknown")
-                                serial = device_info.get("SerialNumber", None)
-                            except AttributeError:
-                                # Handle dict-like objects differently
-                                flags = device_info["Flags"] if "Flags" in device_info else 0
-                                device_type = device_info["Type"] if "Type" in device_info else 0
-                                device_id = device_info["ID"] if "ID" in device_info else 0
-                                description = device_info["Description"] if "Description" in device_info else b"Unknown"
-                                serial = device_info["SerialNumber"] if "SerialNumber" in device_info else None
-                            logger.debug(f"Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
-                            
-                            # Safely access attributes that might be missing
-                            serial_str = serial.decode() if serial else f"UNKNOWN{i}"
-                            
-                            # Store device info keyed by product ID for later use (0x6014 = FT232H)
-                            if device_type == 8 or (description and b"232H" in description):  # FT232H
-                                product_id = 0x6014
-                                self.detected_serials[product_id] = serial_str
-                                logger.debug(f"Stored serial for FT232H device: {serial_str}")
-                            elif device_type == 5 or (description and b"232R" in description):  # FT232R
-                                product_id = 0x6001
-                                self.detected_serials[product_id] = serial_str
-                                logger.debug(f"Stored serial for FT232R device: {serial_str}")
+            # Use only ftd2xx for device detection
+            try:
+                logger.debug("Detecting FTDI devices using only ftd2xx")
+                import ftd2xx  # Import directly within this scope
+                device_count = ftd2xx.createDeviceInfoList()
+                logger.debug(f"ftd2xx reports {device_count} devices")
+                
+                for i in range(device_count):
+                    device_info = ftd2xx.getDeviceInfoDetail(i)
+                    if device_info:
+                        # Safer access to device details with fallbacks
+                        try:
+                            flags = device_info.get("Flags", 0)
+                            device_type = device_info.get("Type", 0)
+                            device_id = device_info.get("ID", 0) 
+                            description = device_info.get("Description", b"Unknown")
+                            serial = device_info.get("SerialNumber", None)
+                        except AttributeError:
+                            # Handle dict-like objects differently
+                            flags = device_info["Flags"] if "Flags" in device_info else 0
+                            device_type = device_info["Type"] if "Type" in device_info else 0
+                            device_id = device_info["ID"] if "ID" in device_info else 0
+                            description = device_info["Description"] if "Description" in device_info else b"Unknown"
+                            serial = device_info["SerialNumber"] if "SerialNumber" in device_info else None
+                        logger.debug(f"Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
+                        
+                        # Safely access attributes that might be missing
+                        serial_str = serial.decode() if serial else f"UNKNOWN{i}"
+                        
+                        # Store device info keyed by product ID for later use (0x6014 = FT232H)
+                        if device_type == 8 or (description and b"232H" in description):  # FT232H
+                            product_id = 0x6014
+                            self.detected_serials[product_id] = serial_str
+                            logger.debug(f"Stored serial for FT232H device: {serial_str}")
                             
                             # Only add the FTDI 232H devices
-                            if (description and b"232H" in description) or device_type == 8:  # 8 is FT232H
-                                device_url = f"ftdi://ftdi:232h:{serial_str}/1"
-                                logger.info(f"Found compatible FTDI device via ftd2xx: {device_url}")
-                                self.device_urls.append(device_url)
-                    
-                except Exception as e:
-                    logger.warning(f"ftd2xx direct detection failed: {e}")
-            
-            # If we found devices via direct detection, or if using ftd2xx on Windows, skip PyUSB enumeration
-            if sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx' and self.device_urls:
-                logger.info(f"Already found {len(self.device_urls)} devices via ftd2xx, skipping PyUSB enumeration")
-            elif not self.device_urls:
-                logger.debug("Scanning for FTDI devices using PyUSB direct device enumeration...")
-                try:
-                    # Use pyusb directly to enumerate devices
-                    import usb.core
-                    import usb.util
-                    
-                    # Find all devices from FTDI (vendor ID 0x0403)
-                    devices = list(usb.core.find(find_all=True, idVendor=0x0403))
-                    logger.debug(f"PyUSB found {len(devices)} FTDI devices")
-                    
-                    for i, device in enumerate(devices):
-                        try:
-                            vendor_id = device.idVendor
-                            product_id = device.idProduct
-                            logger.debug(f"USB device {i}: vendor=0x{vendor_id:04x}, product=0x{product_id:04x}")
-                            
-                            # Try to get serial number - first check if we already detected it
-                            serial = None
-                            
-                            # Check if we already have this serial from ftd2xx
-                            if product_id in self.detected_serials:
-                                serial = self.detected_serials[product_id]
-                                logger.info(f"Using previously detected serial for device {i}: {serial}")
-                            else:
-                                # Otherwise try to get it directly from USB
-                                try:
-                                    serial = usb.util.get_string(device, device.iSerialNumber)
-                                    # Store this serial for future use
-                                    self.detected_serials[product_id] = serial
-                                    logger.debug(f"Successfully read and stored serial for product 0x{product_id:04x}: {serial}")
-                                except:
-                                    serial = f"UNKNOWN{i}"
-                                    logger.warning(f"Could not get serial number for device {i}, using placeholder: {serial}")
-                            
-                            # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
-                            # Ignore FT232R (product ID 0x6001) devices
-                            if product_id == 0x6014:
-                                # Create the standard pyftdi URL
-                                device_url = f"ftdi://ftdi:232h:{serial}/1"
-                                logger.info(f"Found compatible FTDI device: {device_url}")
-                                self.device_urls.append(device_url)
-                        except Exception as e:
-                            logger.warning(f"Error processing USB device {i}: {e}")
-                except Exception as e:
-                    logger.error(f"Error during direct PyUSB device enumeration: {e}")
-                    logger.warning("Falling back to pyftdi device enumeration")
-                    
-                    # Fallback to pyftdi's device enumeration if available
-                    try:
-                        logger.debug("Scanning for FTDI devices using pyftdi.Ftdi.find_all()...")
-                        # Try a different method if list_devices() is not available
-                        ft = Ftdi()
-                        ft.find_all(vendor=0x0403, product=None)
-                        for device in ft.usb_dev_list:
-                            try:
-                                vendor_id = device.idVendor
-                                product_id = device.idProduct
-                                serial = usb.util.get_string(device, device.iSerialNumber)
-                                
-                                logger.debug(f"Found device: Vendor ID: 0x{vendor_id:04x}, Product ID: 0x{product_id:04x}, Serial: {serial}")
-                                
-                                # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
-                                # Ignore FT232R (product ID 0x6001) devices
-                                if product_id == 0x6014:
-                                    # Create the standard pyftdi URL
-                                    device_url = f"ftdi://ftdi:232h:{serial}/1"
-                                    logger.info(f"Found compatible FTDI device: {device_url}")
-                                    self.device_urls.append(device_url)
-                            except Exception as e:
-                                logger.warning(f"Error processing PyFTDI device: {e}")
-                    except Exception as e:
-                        logger.error(f"Error during PyFTDI device enumeration fallback: {e}")
+                            device_url = f"ftdi://ftdi:232h:{serial_str}/1"
+                            logger.info(f"Found compatible FTDI device via ftd2xx: {device_url}")
+                            self.device_urls.append(device_url)
+                        elif device_type == 5 or (description and b"232R" in description):  # FT232R
+                            product_id = 0x6001
+                            self.detected_serials[product_id] = serial_str
+                            logger.debug(f"Stored serial for FT232R device: {serial_str}")
+                
+            except Exception as e:
+                logger.error(f"ftd2xx device detection failed: {e}")
+                # If ftd2xx detection fails, we don't have any fallback - this is critical
+                logger.error("No devices could be detected via ftd2xx. Device detection failed.")
+                
+            # Report on device discovery results
+            if not self.device_urls:
+                logger.warning("No FTDI devices discovered using ftd2xx. Check device connections and driver installation.")
             
             self.device_count = len(self.device_urls)
             logger.info(f"Discovered {self.device_count} FTDI devices")

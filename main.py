@@ -34,57 +34,27 @@ libusb_loaded = False
 ftd2xx_loaded = False
 
 if sys.platform == 'win32':
-    # On Windows, prefer ftd2xx as it's more reliable
+    # On Windows, only use ftd2xx and don't try libusb at all
     try:
         import ftd2xx
         logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
         os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
         ftd2xx_loaded = True
+        logger.info("Using ftd2xx backend on Windows - this is the only option we're using")
     except ImportError:
-        logger.warning("ftd2xx driver not available on Windows, falling back to libusb")
+        logger.error("ftd2xx driver not available on Windows. It is required for this application.")
+        logger.error("Please install ftd2xx package with: pip install ftd2xx")
         ftd2xx_loaded = False
-    
-    # Only if ftd2xx failed, try libusb
-    if not ftd2xx_loaded:
-        # Check if libusb-1.0.dll exists in our directory
-        libusb_dll_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libusb-1.0.dll')
-        if os.path.exists(libusb_dll_path):
-            logger.info(f"Found libusb-1.0.dll at {libusb_dll_path}")
-            try:
-                # Try to use it directly
-                import usb.backend.libusb1
-                backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
-                if backend:
-                    logger.info("Successfully initialized libusb1 backend with local DLL")
-                    os.environ['PYFTDI_BACKEND'] = 'libusb'
-                    libusb_loaded = True
-                else:
-                    logger.warning("Could not initialize libusb1 backend with local DLL")
-            except Exception as e:
-                logger.warning(f"Error initializing libusb backend with local DLL: {e}")
-    
-    # Log the selected backend
-    if ftd2xx_loaded:
-        logger.info("Using ftd2xx backend on Windows - this is the preferred option")
-    elif libusb_loaded:
-        logger.info("Using libusb backend on Windows")
-    else:
-        logger.warning("No USB backend successfully loaded on Windows. Device detection may fail.")
 else:
-    # Try to initialize libusb backend on non-Windows platforms
+    # For non-Windows platforms, we'll still use ftd2xx if available
     try:
-        import usb.backend.libusb1
-        import libusb_package
-        backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
-        if backend:
-            logger.info("Successfully initialized libusb_package backend")
-            libusb_loaded = True
-        else:
-            logger.warning("libusb backend initialization failed")
+        import ftd2xx
+        logger.info("Successfully imported ftd2xx driver on non-Windows platform")
+        os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+        ftd2xx_loaded = True
     except ImportError:
-        logger.warning("libusb_package not available, using default backend")
-    except Exception as e:
-        logger.warning(f"Error initializing libusb backend: {e}")
+        logger.warning("ftd2xx driver not available on non-Windows platform")
+        ftd2xx_loaded = False
 
 from pydecoder import __version__
 from pydecoder.ui.main_window import DecoderUI
@@ -132,15 +102,8 @@ def check_system_environment():
             except Exception as e:
                 logger.warning(f"Error accessing ftd2xx info: {e}")
                 
-            # Try direct USB device enumeration
-            try:
-                import usb.core
-                devices = list(usb.core.find(find_all=True, idVendor=0x0403))  # FTDI vendor ID
-                logger.info(f"PyUSB found {len(devices)} FTDI devices")
-                for i, dev in enumerate(devices):
-                    logger.info(f"USB device {i}: vendor=0x{dev.idVendor:04x}, product=0x{dev.idProduct:04x}")
-            except Exception as e:
-                logger.warning(f"Error enumerating USB devices: {e}")
+            # Skip PyUSB enumeration as we're only using ftd2xx
+            logger.debug("Skipping PyUSB device enumeration as we're exclusively using ftd2xx")
                 
         except Exception as e:
             logger.warning(f"Error during Windows device check: {e}")
