@@ -34,7 +34,7 @@ libusb_loaded = False
 ftd2xx_loaded = False
 
 if sys.platform == 'win32':
-    # On Windows, only use ftd2xx and don't try libusb at all
+    # On Windows, only use ftd2xx backend
     try:
         import ftd2xx
         logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
@@ -75,18 +75,9 @@ def check_system_environment():
         if var in os.environ:
             logger.info(f"Environment variable {var}: {os.environ[var]}")
     
-    # On Windows, check driver and DLL availability in detail
+    # On Windows, check driver availability in detail
     if sys.platform == 'win32':
         try:
-            # Check libusb-1.0.dll status
-            libusb_dll_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libusb-1.0.dll')
-            if os.path.exists(libusb_dll_path):
-                logger.info(f"libusb-1.0.dll exists at {libusb_dll_path}")
-                dll_size = os.path.getsize(libusb_dll_path)
-                logger.info(f"libusb-1.0.dll size: {dll_size} bytes")
-            else:
-                logger.warning("libusb-1.0.dll not found in application directory")
-            
             # Check ftd2xx status
             try:
                 import ftd2xx
@@ -102,8 +93,7 @@ def check_system_environment():
             except Exception as e:
                 logger.warning(f"Error accessing ftd2xx info: {e}")
                 
-            # Skip PyUSB enumeration as we're only using ftd2xx
-            logger.debug("Skipping PyUSB device enumeration as we're exclusively using ftd2xx")
+            logger.debug("Using ftd2xx exclusively for device access")
                 
         except Exception as e:
             logger.warning(f"Error during Windows device check: {e}")

@@ -100,33 +100,24 @@ class FTDIDeviceManager:
             backend = os.environ.get('PYFTDI_BACKEND', 'default')
             logger.debug(f"FTDI device discovery using {backend} backend")
             
-            # Use pyftdi's built-in device listing functionality
-            from pyftdi.ftdi import Ftdi
-            
             # Debug: log current backend
             logger.debug(f"Using PyFTDI backend: {backend}")
             
-            # Set backend explicitly to help debugging
-            if backend != 'default':
-                logger.debug(f"Setting PyFTDI backend to: {backend}")
-                try:
-                    # Only add vendor/product if not already registered
-                    Ftdi.add_custom_vendor(0x0403, 'FTDI')
-                    Ftdi.add_custom_product(0x0403, 0x6014, 'FT232H')
-                except ValueError as e:
-                    # This is expected if already registered, so log at debug level
-                    logger.debug(f"FTDI vendor/product already registered: {e}")
+            # For ftd2xx backend, we don't use pyftdi's device listing
             
             # Use only ftd2xx for device detection
             try:
-                logger.debug("Detecting FTDI devices using only ftd2xx")
+                logger.info("Detecting FTDI devices using only ftd2xx - VERBOSE DEBUG")
                 import ftd2xx  # Import directly within this scope
                 device_count = ftd2xx.createDeviceInfoList()
-                logger.debug(f"ftd2xx reports {device_count} devices")
+                logger.info(f"DEBUG: ftd2xx reports {device_count} devices")
                 
+                device_found = False  # Track if we found any compatible devices
                 for i in range(device_count):
+                    logger.info(f"DEBUG: Processing device {i}")
                     device_info = ftd2xx.getDeviceInfoDetail(i)
                     if device_info:
+                        logger.info(f"DEBUG: Raw device info for device {i}: {device_info}")
                         # Safer access to device details with fallbacks
                         try:
                             flags = device_info.get("Flags", 0)
@@ -134,32 +125,46 @@ class FTDIDeviceManager:
                             device_id = device_info.get("ID", 0) 
                             description = device_info.get("Description", b"Unknown")
                             serial = device_info.get("SerialNumber", None)
+                            logger.info(f"DEBUG: Accessed device details using get() method")
                         except AttributeError:
                             # Handle dict-like objects differently
+                            logger.info(f"DEBUG: AttributeError with get(), trying dict access")
                             flags = device_info["Flags"] if "Flags" in device_info else 0
                             device_type = device_info["Type"] if "Type" in device_info else 0
                             device_id = device_info["ID"] if "ID" in device_info else 0
                             description = device_info["Description"] if "Description" in device_info else b"Unknown"
                             serial = device_info["SerialNumber"] if "SerialNumber" in device_info else None
-                        logger.debug(f"Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
+                        logger.info(f"DEBUG: Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
                         
                         # Safely access attributes that might be missing
                         serial_str = serial.decode() if serial else f"UNKNOWN{i}"
+                        logger.info(f"DEBUG: Serial string: {serial_str}")
                         
                         # Store device info keyed by product ID for later use (0x6014 = FT232H)
                         if device_type == 8 or (description and b"232H" in description):  # FT232H
+                            logger.info(f"DEBUG: Device {i} is FT232H type")
                             product_id = 0x6014
                             self.detected_serials[product_id] = serial_str
-                            logger.debug(f"Stored serial for FT232H device: {serial_str}")
+                            logger.info(f"DEBUG: Stored serial for FT232H device: {serial_str}")
                             
                             # Only add the FTDI 232H devices
                             device_url = f"ftdi://ftdi:232h:{serial_str}/1"
                             logger.info(f"Found compatible FTDI device via ftd2xx: {device_url}")
                             self.device_urls.append(device_url)
+                            device_found = True
+                            logger.info(f"DEBUG: Added device to device_urls, current count: {len(self.device_urls)}")
                         elif device_type == 5 or (description and b"232R" in description):  # FT232R
+                            logger.info(f"DEBUG: Device {i} is FT232R type (not compatible)")
                             product_id = 0x6001
                             self.detected_serials[product_id] = serial_str
-                            logger.debug(f"Stored serial for FT232R device: {serial_str}")
+                            logger.info(f"DEBUG: Stored serial for FT232R device: {serial_str}")
+                    else:
+                        logger.info(f"DEBUG: No device info returned for device {i}")
+                
+                if not device_found:
+                    logger.warning(f"DEBUG: No compatible FT232H devices found despite having {device_count} FTDI devices")
+                
+                logger.info(f"DEBUG: Final device_urls list: {self.device_urls}")
                 
             except Exception as e:
                 logger.error(f"ftd2xx device detection failed: {e}")
@@ -229,15 +234,18 @@ class FTDIDeviceManager:
     
     def _configure_devices(self) -> None:
         """Configure discovered FTDI devices."""
-        # For Windows, we need special handling based on the backend
+        # Log the device URLs we have at this point
+        logger.info(f"DEBUG: Configure devices - device URLs at start: {self.device_urls}")
+        
+        # For Windows, we need special handling for ftd2xx
         import sys
-        windows_libusb_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'libusb'
         windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        logger.info(f"DEBUG: Windows ftd2xx mode: {windows_ftd2xx_mode}")
         
         for device_idx, url in enumerate(self.device_urls):
             try:
-                # Special handling for Windows with any backend (both need similar handling)
-                if windows_libusb_mode or windows_ftd2xx_mode:
+                # Special handling for Windows with ftd2xx backend
+                if windows_ftd2xx_mode:
                     logger.info(f"Using Windows-specific configuration approach for {url}")
                     
                     # For Windows, we need to properly initialize GpioMpsseController
@@ -372,13 +380,12 @@ class FTDIDeviceManager:
             logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
         
-        # Check for Windows - we need special handling depending on backend
+        # Check for Windows - we need special handling for ftd2xx backend
         import sys
-        windows_libusb_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'libusb'
         windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
-        # For Windows, use appropriate handling based on the backend
-        if windows_libusb_mode or windows_ftd2xx_mode:
+        # For Windows, use appropriate handling for ftd2xx backend
+        if windows_ftd2xx_mode:
             devices = [
                 (1, self.gpio_device1),
                 (2, self.gpio_device2),
@@ -459,9 +466,9 @@ class FTDIDeviceManager:
             logger.info("SIMULATION: Closing simulated FTDI devices")
             return
             
-        # Check for Windows with libusb1 - we need special handling
+        # Check for Windows with ftd2xx - we need special handling
         import sys
-        windows_libusb_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'libusb'
+        windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
         devices = [
             (1, self.gpio_device1),
@@ -472,7 +479,7 @@ class FTDIDeviceManager:
         for device_num, gpio in devices:
             if gpio:
                 try:
-                    # Use standard close for Windows with libusb backend
+                    # Use standard close for Windows with ftd2xx backend
                     # GpioMpsseController.close() will handle closing the underlying FTDI device
                     logger.info(f"Closing FTDI device {device_num}")
                     gpio.close()
