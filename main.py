@@ -34,38 +34,40 @@ libusb_loaded = False
 ftd2xx_loaded = False
 
 if sys.platform == 'win32':
-    # On Windows, first check if libusb-1.0.dll exists in our directory
-    libusb_dll_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libusb-1.0.dll')
-    if os.path.exists(libusb_dll_path):
-        logger.info(f"Found libusb-1.0.dll at {libusb_dll_path}")
-        try:
-            # Try to use it directly
-            import usb.backend.libusb1
-            backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
-            if backend:
-                logger.info("Successfully initialized libusb1 backend with local DLL")
-                os.environ['PYFTDI_BACKEND'] = 'libusb'
-                libusb_loaded = True
-            else:
-                logger.warning("Could not initialize libusb1 backend with local DLL")
-        except Exception as e:
-            logger.warning(f"Error initializing libusb backend with local DLL: {e}")
+    # On Windows, prefer ftd2xx as it's more reliable
+    try:
+        import ftd2xx
+        logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
+        os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+        ftd2xx_loaded = True
+    except ImportError:
+        logger.warning("ftd2xx driver not available on Windows, falling back to libusb")
+        ftd2xx_loaded = False
     
-    # If libusb failed, try ftd2xx
-    if not libusb_loaded:
-        try:
-            import ftd2xx
-            logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
-            os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
-            ftd2xx_loaded = True
-        except ImportError:
-            logger.warning("ftd2xx driver not available on Windows")
+    # Only if ftd2xx failed, try libusb
+    if not ftd2xx_loaded:
+        # Check if libusb-1.0.dll exists in our directory
+        libusb_dll_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libusb-1.0.dll')
+        if os.path.exists(libusb_dll_path):
+            logger.info(f"Found libusb-1.0.dll at {libusb_dll_path}")
+            try:
+                # Try to use it directly
+                import usb.backend.libusb1
+                backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
+                if backend:
+                    logger.info("Successfully initialized libusb1 backend with local DLL")
+                    os.environ['PYFTDI_BACKEND'] = 'libusb'
+                    libusb_loaded = True
+                else:
+                    logger.warning("Could not initialize libusb1 backend with local DLL")
+            except Exception as e:
+                logger.warning(f"Error initializing libusb backend with local DLL: {e}")
     
     # Log the selected backend
-    if libusb_loaded:
+    if ftd2xx_loaded:
+        logger.info("Using ftd2xx backend on Windows - this is the preferred option")
+    elif libusb_loaded:
         logger.info("Using libusb backend on Windows")
-    elif ftd2xx_loaded:
-        logger.info("Using ftd2xx backend on Windows")
     else:
         logger.warning("No USB backend successfully loaded on Windows. Device detection may fail.")
 else:

@@ -11,66 +11,17 @@ import usb.util
 
 logger = logging.getLogger(__name__)
 
-# Try both backends on Windows
+# Check if backend was already selected in main.py
 if sys.platform == 'win32':
-    # Try libusb1 backend first (seems to have better device detection)
-    try:
-        import usb.backend.libusb1
-        # Try different methods to locate the DLL
-        logger.debug("Trying to find libusb1 backend")
+    backend = os.environ.get('PYFTDI_BACKEND', '')
+    if backend == 'ftd2xx':
+        logger.debug("Using ftd2xx backend as configured in main.py")
+    elif backend == 'libusb':
+        logger.debug("Using libusb backend as configured in main.py")
+    else:
+        logger.debug("No backend configured yet, selecting one now")
         
-        # Method 1: Check local DLL first (our preferred option)
-        libusb_dll_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'libusb-1.0.dll')
-        if os.path.exists(libusb_dll_path):
-            logger.debug(f"Found local libusb DLL at {libusb_dll_path}")
-            backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
-            if backend:
-                logger.debug("Successfully initialized libusb1 backend with local DLL")
-                os.environ['PYFTDI_BACKEND'] = 'libusb'
-                logger.info("Using libusb backend on Windows (direct DLL)")
-            else:
-                logger.warning("Could not initialize libusb1 backend with local DLL")
-        
-        # Method 2: Try libusb_package
-        if 'PYFTDI_BACKEND' not in os.environ:
-            try:
-                import libusb_package
-                logger.debug("Found libusb_package module")
-                backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
-                if backend:
-                    logger.debug("Successfully initialized libusb1 backend with libusb_package")
-                    os.environ['PYFTDI_BACKEND'] = 'libusb'
-                    logger.info("Using libusb backend on Windows (libusb_package)")
-                else:
-                    logger.warning("Could not initialize libusb1 backend with libusb_package")
-            except ImportError:
-                logger.warning("libusb_package module not available")
-            
-        # Method 3: Windows DLL path search
-        if 'PYFTDI_BACKEND' not in os.environ:
-            # Check common Windows DLL locations
-            common_dll_paths = [
-                "C:\\Windows\\System32\\libusb-1.0.dll",
-                "C:\\Windows\\SysWOW64\\libusb-1.0.dll"
-            ]
-            for dll_path in common_dll_paths:
-                if os.path.exists(dll_path):
-                    logger.debug(f"Found system libusb DLL at {dll_path}")
-                    backend = usb.backend.libusb1.get_backend(find_library=lambda x: dll_path)
-                    if backend:
-                        logger.debug(f"Successfully initialized libusb1 backend with system DLL at {dll_path}")
-                        os.environ['PYFTDI_BACKEND'] = 'libusb'
-                        logger.info("Using libusb backend on Windows (system DLL)")
-                        break
-                    else:
-                        logger.warning(f"Could not initialize libusb1 backend with system DLL at {dll_path}")
-    except ImportError:
-        logger.warning("libusb1 backend not available on Windows")
-    except Exception as e:
-        logger.warning(f"Error initializing libusb1 backend: {e}")
-    
-    # If libusb1 failed, try ftd2xx backend
-    if 'PYFTDI_BACKEND' not in os.environ:
+        # Try ftd2xx first (more reliable on Windows)
         try:
             import ftd2xx
             logger.debug("Successfully imported ftd2xx driver")
@@ -78,8 +29,28 @@ if sys.platform == 'win32':
             logger.info("Using ftd2xx backend on Windows")
         except ImportError:
             logger.warning("ftd2xx driver not available on Windows")
+            
+            # Fall back to libusb if available
+            try:
+                import usb.backend.libusb1
+                # Check local DLL first
+                libusb_dll_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'libusb-1.0.dll')
+                if os.path.exists(libusb_dll_path):
+                    backend = usb.backend.libusb1.get_backend(find_library=lambda x: libusb_dll_path)
+                    if backend:
+                        logger.debug("Successfully initialized libusb1 backend with local DLL")
+                        os.environ['PYFTDI_BACKEND'] = 'libusb'
+                        logger.info("Using libusb backend on Windows (direct DLL)")
+                    else:
+                        logger.warning("Could not initialize libusb1 backend with local DLL")
+                else:
+                    logger.warning("libusb-1.0.dll not found in application directory")
+            except ImportError:
+                logger.warning("libusb1 backend not available on Windows")
+            except Exception as e:
+                logger.warning(f"Error initializing libusb1 backend: {e}")
     
-    # Log final backend status
+    # Log final backend status if nothing worked
     if 'PYFTDI_BACKEND' not in os.environ:
         logger.warning("No USB backend successfully initialized on Windows. Device detection may fail.")
         # Create a dummy environment variable so we can check if neither backend worked
@@ -111,6 +82,8 @@ class FTDIDeviceManager:
         self.device_urls: List[str] = []
         self.device_count: int = 0
         self.simulation_mode = simulation_mode
+        # Store device serials to bridge the gap between detection methods
+        self.detected_serials: dict = {}
         
         # Check if we should use simulation mode
         if sys.platform == 'win32' and not simulation_mode:
@@ -198,8 +171,18 @@ class FTDIDeviceManager:
                             ]
                             logger.debug(f"Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
                             
+                            # Store device info keyed by product ID for later use (0x6014 = FT232H)
+                            if device_type == 8 or b"232H" in description:  # FT232H
+                                product_id = 0x6014
+                                self.detected_serials[product_id] = serial.decode()
+                                logger.debug(f"Stored serial for FT232H device: {serial.decode()}")
+                            elif device_type == 5 or b"232R" in description:  # FT232R
+                                product_id = 0x6001
+                                self.detected_serials[product_id] = serial.decode()
+                                logger.debug(f"Stored serial for FT232R device: {serial.decode()}")
+                            
                             # Only add the FTDI 232H devices
-                            if b"FT232H" in description or device_type == 8:  # 8 is FT232H
+                            if b"232H" in description or device_type == 8:  # 8 is FT232H
                                 device_url = f"ftdi://ftdi:232h:{serial.decode()}/1"
                                 logger.info(f"Found compatible FTDI device via ftd2xx: {device_url}")
                                 self.device_urls.append(device_url)
@@ -207,8 +190,10 @@ class FTDIDeviceManager:
                 except Exception as e:
                     logger.warning(f"ftd2xx direct detection failed: {e}")
             
-            # If we found devices via direct detection, skip PyFTDI detection
-            if not self.device_urls:
+            # If we found devices via direct detection, or if using ftd2xx on Windows, skip PyUSB enumeration
+            if sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx' and self.device_urls:
+                logger.info(f"Already found {len(self.device_urls)} devices via ftd2xx, skipping PyUSB enumeration")
+            elif not self.device_urls:
                 logger.debug("Scanning for FTDI devices using PyUSB direct device enumeration...")
                 try:
                     # Use pyusb directly to enumerate devices
@@ -225,12 +210,23 @@ class FTDIDeviceManager:
                             product_id = device.idProduct
                             logger.debug(f"USB device {i}: vendor=0x{vendor_id:04x}, product=0x{product_id:04x}")
                             
-                            # Try to get serial number
-                            try:
-                                serial = usb.util.get_string(device, device.iSerialNumber)
-                            except:
-                                serial = f"UNKNOWN{i}"
-                                logger.warning(f"Could not get serial number for device {i}, using placeholder: {serial}")
+                            # Try to get serial number - first check if we already detected it
+                            serial = None
+                            
+                            # Check if we already have this serial from ftd2xx
+                            if product_id in self.detected_serials:
+                                serial = self.detected_serials[product_id]
+                                logger.info(f"Using previously detected serial for device {i}: {serial}")
+                            else:
+                                # Otherwise try to get it directly from USB
+                                try:
+                                    serial = usb.util.get_string(device, device.iSerialNumber)
+                                    # Store this serial for future use
+                                    self.detected_serials[product_id] = serial
+                                    logger.debug(f"Successfully read and stored serial for product 0x{product_id:04x}: {serial}")
+                                except:
+                                    serial = f"UNKNOWN{i}"
+                                    logger.warning(f"Could not get serial number for device {i}, using placeholder: {serial}")
                             
                             # Only add the FTDI 232H devices (product ID 0x6014 - C232HM-EDHSL-0)
                             # Ignore FT232R (product ID 0x6001) devices
@@ -330,17 +326,18 @@ class FTDIDeviceManager:
     
     def _configure_devices(self) -> None:
         """Configure discovered FTDI devices."""
-        # For Windows with libusb1, we need a special approach
+        # For Windows, we need special handling based on the backend
         import sys
         windows_libusb_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'libusb'
+        windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
         for device_idx, url in enumerate(self.device_urls):
             try:
-                # Special handling for Windows with libusb backend
-                if windows_libusb_mode:
+                # Special handling for Windows with any backend (both need similar handling)
+                if windows_libusb_mode or windows_ftd2xx_mode:
                     logger.info(f"Using Windows-specific configuration approach for {url}")
                     
-                    # For Windows with libusb, we need to properly initialize GpioMpsseController
+                    # For Windows, we need to properly initialize GpioMpsseController
                     try:
                         # Properly configure the existing GpioMpsseController instance
                         if device_idx == 0 and self.gpio_device1:
@@ -450,12 +447,13 @@ class FTDIDeviceManager:
             logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
         
-        # Check for Windows with libusb1 - we need special handling
+        # Check for Windows - we need special handling depending on backend
         import sys
         windows_libusb_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'libusb'
+        windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
-        # For Windows with libusb backend, use standard GPIO write but with additional error handling
-        if windows_libusb_mode:
+        # For Windows, use appropriate handling based on the backend
+        if windows_libusb_mode or windows_ftd2xx_mode:
             devices = [
                 (1, self.gpio_device1),
                 (2, self.gpio_device2),
