@@ -141,7 +141,7 @@ class FTDIDeviceManager:
                         logger.info(f"DEBUG: Serial string: {serial_str}")
                         
                         # Store device info keyed by product ID for later use (0x6014 = FT232H)
-                        if device_type == 8 or (description and b"232H" in description):  # FT232H
+                        if device_type == 8 or (description and (b"232H" in description or b"C232HM-EDHSL-0" in description)):  # FT232H
                             logger.info(f"DEBUG: Device {i} is FT232H type")
                             product_id = 0x6014
                             self.detected_serials[product_id] = serial_str
