@@ -19,8 +19,9 @@ logging.basicConfig(
     filemode='w'
 )
 
-# Add console handler for debugging
+# Add console handler for important messages
 console_handler = logging.StreamHandler()
+# Using INFO level to show basic status updates but not excessive debug information
 console_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)

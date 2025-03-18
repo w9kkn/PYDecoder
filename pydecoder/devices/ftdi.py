@@ -107,17 +107,17 @@ class FTDIDeviceManager:
             
             # Use only ftd2xx for device detection
             try:
-                logger.info("Detecting FTDI devices using only ftd2xx - VERBOSE DEBUG")
+                logger.info("Detecting FTDI devices using only ftd2xx")
                 import ftd2xx  # Import directly within this scope
                 device_count = ftd2xx.createDeviceInfoList()
-                logger.info(f"DEBUG: ftd2xx reports {device_count} devices")
+                logger.debug(f"ftd2xx reports {device_count} devices")
                 
                 device_found = False  # Track if we found any compatible devices
                 for i in range(device_count):
-                    logger.info(f"DEBUG: Processing device {i}")
+                    logger.debug(f"Processing device {i}")
                     device_info = ftd2xx.getDeviceInfoDetail(i)
                     if device_info:
-                        logger.info(f"DEBUG: Raw device info for device {i}: {device_info}")
+                        logger.debug(f"Raw device info for device {i}: {device_info}")
                         # Safer access to device details with fallbacks
                         # From the log output, it appears the keys are: 'index', 'flags', 'type', 'id', 'location', 'serial', 'description'
                         try:
@@ -127,10 +127,10 @@ class FTDIDeviceManager:
                             device_id = device_info.get("id", 0) 
                             description = device_info.get("description", b"Unknown")
                             serial = device_info.get("serial", None)
-                            logger.info(f"DEBUG: Accessed device details using exact keys from log output")
+                            logger.debug(f"Accessed device details using get() method")
                         except (AttributeError, TypeError):
                             # Fall back to direct dictionary access
-                            logger.info(f"DEBUG: Error with get(), trying direct dictionary access")
+                            logger.debug(f"Error with get(), trying direct dictionary access")
                             try:
                                 flags = device_info["flags"]
                                 device_type = device_info["type"]
@@ -144,13 +144,13 @@ class FTDIDeviceManager:
                                 device_id = 0
                                 description = b"Unknown"
                                 serial = None
-                        logger.info(f"DEBUG: Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
+                        logger.debug(f"Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
                         
                         # Safely access attributes that might be missing
                         serial_str = serial.decode() if serial else f"UNKNOWN{i}"
                         desc_str = description.decode() if description else f"UNKNOWN{i}"
-                        logger.info(f"DEBUG: Serial string: {serial_str}")
-                        logger.info(f"DEBUG: Description string: {desc_str}")
+                        logger.debug(f"Serial string: {serial_str}")
+                        logger.debug(f"Description string: {desc_str}")
                         
                         # Store device info keyed by product ID for later use (0x6014 = FT232H)
                         # Check for C232HM devices in both binary and string formats (after decoding)
@@ -161,29 +161,29 @@ class FTDIDeviceManager:
                             is_c232hm = True
                             
                         if device_type == 8 or is_c232hm:  # FT232H
-                            logger.info(f"DEBUG: Device {i} is FT232H type")
+                            logger.debug(f"Device {i} is FT232H type")
                             product_id = 0x6014
                             self.detected_serials[product_id] = serial_str
-                            logger.info(f"DEBUG: Stored serial for FT232H device: {serial_str}")
+                            logger.debug(f"Stored serial for FT232H device: {serial_str}")
                             
                             # Only add the FTDI 232H devices
                             device_url = f"ftdi://ftdi:232h:{serial_str}/1"
                             logger.info(f"Found compatible FTDI device via ftd2xx: {device_url}")
                             self.device_urls.append(device_url)
                             device_found = True
-                            logger.info(f"DEBUG: Added device to device_urls, current count: {len(self.device_urls)}")
+                            logger.debug(f"Added device to device_urls, current count: {len(self.device_urls)}")
                         elif device_type == 5 or (description and b"232R" in description) or (desc_str and "232R" in desc_str):  # FT232R
-                            logger.info(f"DEBUG: Device {i} is FT232R type (not compatible)")
+                            logger.debug(f"Device {i} is FT232R type (not compatible)")
                             product_id = 0x6001
                             self.detected_serials[product_id] = serial_str
-                            logger.info(f"DEBUG: Stored serial for FT232R device: {serial_str}")
+                            logger.debug(f"Stored serial for FT232R device: {serial_str}")
                     else:
-                        logger.info(f"DEBUG: No device info returned for device {i}")
+                        logger.debug(f"No device info returned for device {i}")
                 
                 if not device_found:
-                    logger.warning(f"DEBUG: No compatible FT232H devices found despite having {device_count} FTDI devices")
+                    logger.warning(f"No compatible FT232H devices found despite having {device_count} FTDI devices")
                 
-                logger.info(f"DEBUG: Final device_urls list: {self.device_urls}")
+                logger.debug(f"Final device_urls list: {self.device_urls}")
                 
             except Exception as e:
                 logger.error(f"ftd2xx device detection failed: {e}")
@@ -254,12 +254,12 @@ class FTDIDeviceManager:
     def _configure_devices(self) -> None:
         """Configure discovered FTDI devices."""
         # Log the device URLs we have at this point
-        logger.info(f"DEBUG: Configure devices - device URLs at start: {self.device_urls}")
+        logger.debug(f"Configure devices - device URLs at start: {self.device_urls}")
         
         # For Windows, we need special handling for ftd2xx
         import sys
         windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
-        logger.info(f"DEBUG: Windows ftd2xx mode: {windows_ftd2xx_mode}")
+        logger.debug(f"Windows ftd2xx mode: {windows_ftd2xx_mode}")
         
         for device_idx, url in enumerate(self.device_urls):
             try:
