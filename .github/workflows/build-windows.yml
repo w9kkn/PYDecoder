@@ -43,7 +43,7 @@ jobs:
     - name: Build executable
       run: |
         $env:UV_LINK_MODE = "copy"
-        uv run PyInstaller --onefile --resource libusb-1.0.dll --console --name PYDecoder main.py
+        uv run PyInstaller --onefile --console --name PYDecoder main.py
     
     - name: Rename executable with version
       run: |
