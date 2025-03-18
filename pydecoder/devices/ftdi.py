@@ -52,6 +52,13 @@ class FTDIDeviceManager:
         self.gpio_device0: Optional[GpioMpsseController] = None
         self.gpio_device1: Optional[GpioMpsseController] = None 
         self.gpio_device2: Optional[GpioMpsseController] = None
+        # Direct ftd2xx device handles for direct mode
+        self._ft232h_device0 = None
+        self._ft232h_device1 = None
+        self._ft232h_device2 = None
+        # Flag to indicate if we're using direct ftd2xx mode
+        self._direct_mode = False
+        
         self.device_urls: List[str] = []
         self.device_count: int = 0
         self.simulation_mode = simulation_mode
@@ -302,32 +309,86 @@ class FTDIDeviceManager:
                                 # Create a new controller to avoid issues with previous configuration attempts
                                 self.gpio_device0 = GpioMpsseController()
                                 
-                                # Explicit backend configuration
-                                # Check if we need to re-import the backend
+                                # Direct approach using ftd2xx
                                 try:
+                                    # Instead of using pyftdi's GPIO controller, try direct ftd2xx approach
                                     import ftd2xx
-                                    logger.debug("Imported ftd2xx for device configuration")
+                                    logger.debug("Imported ftd2xx for direct device configuration")
+                                    
+                                    # Extract device index from ftd2xx
+                                    logger.debug(f"Trying to open FT232H device directly with ftd2xx")
+                                    
+                                    # Get device count
+                                    device_count = ftd2xx.createDeviceInfoList()
+                                    logger.debug(f"ftd2xx reports {device_count} devices for direct access")
+                                    
+                                    if device_count > 0:
+                                        # Open the first device directly
+                                        try:
+                                            # Try to find the device with the matching serial number
+                                            # Extract serial from URL (format is like ftdi://ftdi:232h:FT1ZT9GJ/1)
+                                            serial_parts = url.split(':')
+                                            if len(serial_parts) >= 4:
+                                                serial = serial_parts[3].split('/')[0]
+                                                logger.debug(f"Extracted serial from URL: {serial}")
+                                                
+                                                # Try to find device by serial
+                                                found_idx = None
+                                                for i in range(device_count):
+                                                    dev_info = ftd2xx.getDeviceInfoDetail(i)
+                                                    if dev_info and 'serial' in dev_info:
+                                                        dev_serial = dev_info['serial'].decode() if dev_info['serial'] else ""
+                                                        if dev_serial == serial:
+                                                            found_idx = i
+                                                            logger.debug(f"Found device with matching serial at index {i}")
+                                                            break
+                                                
+                                                # If found, use that index, otherwise use 0
+                                                device_idx = found_idx if found_idx is not None else 0
+                                            else:
+                                                device_idx = 0
+                                            
+                                            # Open device by index
+                                            logger.debug(f"Opening device with index {device_idx}")
+                                            self._ft232h_device0 = ftd2xx.open(device_idx)
+                                            
+                                            # Configure for MPSSE mode (Mode 0)
+                                            self._ft232h_device0.setBitMode(0xFF, 0x02)  # Set all pins as outputs in MPSSE mode
+                                            self._ft232h_device0.setTimeouts(1000, 1000)  # Set read/write timeouts
+                                            
+                                            # Create a simpler interface for our use
+                                            self._direct_mode = True
+                                            logger.info(f"Successfully configured device 0 with direct ftd2xx mode")
+                                            
+                                            # Track that device 0 is configured
+                                            if 0 not in self.configured_devices:
+                                                self.configured_devices.append(0)
+                                            
+                                            # Skip the pyftdi configuration
+                                            return
+                                        except Exception as e:
+                                            logger.error(f"Error in direct ftd2xx configuration: {e}")
+                                    else:
+                                        logger.error("No devices reported by ftd2xx for direct access")
                                 except ImportError:
                                     logger.error("Could not import ftd2xx - required for device 0 configuration")
-                                    raise
                                 
-                                # First ensure backend is explicitly set
-                                from pyftdi.ftdi import Ftdi
-                                # Print current backend to debug
-                                current_backend = os.environ.get('PYFTDI_BACKEND', 'unknown')
-                                logger.debug(f"Current PYFTDI_BACKEND before configure: {current_backend}")
-                                
-                                # Use simpler configuration approach
-                                self.gpio_device0.configure(
-                                    url, 
-                                    direction=0xFF,  # All pins as outputs
-                                    frequency=1e3,   # 1 kHz
-                                    initial=0x0      # Initial value 0
-                                )
-                                logger.info(f"Successfully configured device 0 with MPSSE mode")
-                                # Track that device 0 is configured
-                                if 0 not in self.configured_devices:
-                                    self.configured_devices.append(0)
+                                # Fall back to pyftdi configuration if direct approach failed
+                                logger.debug("Falling back to pyftdi configuration")
+                                try:
+                                    # Use simpler configuration approach
+                                    self.gpio_device0.configure(
+                                        url, 
+                                        direction=0xFF,  # All pins as outputs
+                                        frequency=1e3,   # 1 kHz
+                                        initial=0x0      # Initial value 0
+                                    )
+                                    logger.info(f"Successfully configured device 0 with pyftdi MPSSE mode")
+                                    # Track that device 0 is configured
+                                    if 0 not in self.configured_devices:
+                                        self.configured_devices.append(0)
+                                except Exception as e:
+                                    logger.error(f"Error in fallback pyftdi configuration: {e}")
                             except Exception as e:
                                 if "No backend available" in str(e):
                                     logger.error(f"No backend available for device 0 configuration. Make sure ftd2xx is properly installed.")
@@ -492,6 +553,32 @@ class FTDIDeviceManager:
             logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
         
+        # Check for direct ftd2xx mode - this takes precedence
+        if self._direct_mode:
+            logger.debug(f"Using direct ftd2xx mode to write BCD value {bcd_value} (0x{bcd_value:02X})")
+            # Write to device 0 if configured
+            if 0 in self.configured_devices and self._ft232h_device0:
+                try:
+                    # Write to the device using direct ftd2xx commands
+                    # First create a single byte buffer with the BCD value
+                    data = bytes([bcd_value])
+                    bytes_written = self._ft232h_device0.write(data)
+                    if bytes_written == 1:
+                        logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 0 using direct ftd2xx mode")
+                    else:
+                        logger.warning(f"Unexpected result writing to device 0: wrote {bytes_written} bytes")
+                except Exception as e:
+                    logger.error(f"Error writing to FTDI device 0 using direct ftd2xx: {e}")
+                    # If write fails, remove device from configured list and check if we should switch to simulation
+                    if 0 in self.configured_devices:
+                        self.configured_devices.remove(0)
+                    if not self.configured_devices:
+                        logger.warning("All devices have encountered errors. Switching to simulation mode.")
+                        self.simulation_mode = True
+                        logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
+            return
+        
+        # Standard handling using pyftdi's GpioMpsseController
         # Check for ftd2xx backend - we need special handling
         import sys
         ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
@@ -623,6 +710,39 @@ class FTDIDeviceManager:
             logger.info("SIMULATION: Closing simulated FTDI devices")
             return
             
+        # Check for direct ftd2xx mode first
+        if self._direct_mode:
+            logger.info("Closing devices in direct ftd2xx mode")
+            
+            # Close any direct ftd2xx devices
+            if self._ft232h_device0:
+                try:
+                    logger.info("Closing direct ftd2xx device 0")
+                    self._ft232h_device0.close()
+                    self._ft232h_device0 = None
+                except Exception as e:
+                    logger.error(f"Error closing direct ftd2xx device 0: {e}")
+                
+            if self._ft232h_device1:
+                try:
+                    logger.info("Closing direct ftd2xx device 1")
+                    self._ft232h_device1.close()
+                    self._ft232h_device1 = None
+                except Exception as e:
+                    logger.error(f"Error closing direct ftd2xx device 1: {e}")
+                
+            if self._ft232h_device2:
+                try:
+                    logger.info("Closing direct ftd2xx device 2")
+                    self._ft232h_device2.close()
+                    self._ft232h_device2 = None
+                except Exception as e:
+                    logger.error(f"Error closing direct ftd2xx device 2: {e}")
+            
+            # We're done with the direct devices
+            return
+        
+        # Standard pyftdi device handling
         # Check for ftd2xx backend - we need special handling
         import sys
         ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
@@ -647,7 +767,7 @@ class FTDIDeviceManager:
         for device_num, gpio in devices:
             if gpio:
                 try:
-                    # Use standard close for Windows with ftd2xx backend
+                    # Use standard close for ftd2xx backend
                     # GpioMpsseController.close() will handle closing the underlying FTDI device
                     logger.info(f"Closing FTDI device {device_num}")
                     gpio.close()
