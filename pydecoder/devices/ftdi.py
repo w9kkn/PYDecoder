@@ -160,6 +160,7 @@ class FTDIDeviceManager:
             if sys.platform == 'win32' and 'ftd2xx' in sys.modules:
                 try:
                     logger.debug("Attempting direct ftd2xx device detection")
+                    import ftd2xx  # Import directly within this scope
                     device_count = ftd2xx.createDeviceInfoList()
                     logger.debug(f"ftd2xx reports {device_count} devices")
                     
