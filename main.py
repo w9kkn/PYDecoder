@@ -35,26 +35,26 @@ libusb_loaded = False
 ftd2xx_loaded = False
 
 if sys.platform == 'win32':
-    # On Windows, only use ftd2xx backend
+    # On Windows, we exclusively use ftd2xx backend
     try:
         import ftd2xx
         logger.info("Successfully imported ftd2xx driver, will use ftd2xx backend")
         os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
         ftd2xx_loaded = True
-        logger.info("Using ftd2xx backend on Windows - this is the only option we're using")
+        logger.info("Using ftd2xx backend - this is the only backend we're using")
     except ImportError:
-        logger.error("ftd2xx driver not available on Windows. It is required for this application.")
+        logger.error("ftd2xx driver not available. It is required for this application.")
         logger.error("Please install ftd2xx package with: pip install ftd2xx")
         ftd2xx_loaded = False
 else:
-    # For non-Windows platforms, we'll still use ftd2xx if available
+    # For other platforms, we'll still use ftd2xx if available
     try:
         import ftd2xx
-        logger.info("Successfully imported ftd2xx driver on non-Windows platform")
+        logger.info("Successfully imported ftd2xx driver")
         os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
         ftd2xx_loaded = True
     except ImportError:
-        logger.warning("ftd2xx driver not available on non-Windows platform")
+        logger.warning("ftd2xx driver not available")
         ftd2xx_loaded = False
 
 from pydecoder import __version__
@@ -76,8 +76,8 @@ def check_system_environment():
         if var in os.environ:
             logger.info(f"Environment variable {var}: {os.environ[var]}")
     
-    # On Windows, check driver availability in detail
-    if sys.platform == 'win32':
+    # Check ftd2xx driver availability in detail
+    if ftd2xx_loaded:
         try:
             # Check ftd2xx status
             try:
@@ -97,7 +97,7 @@ def check_system_environment():
             logger.debug("Using ftd2xx exclusively for device access")
                 
         except Exception as e:
-            logger.warning(f"Error during Windows device check: {e}")
+            logger.warning(f"Error during ftd2xx device check: {e}")
 
 def main():
     """Main entry point for the application."""

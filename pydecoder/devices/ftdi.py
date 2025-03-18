@@ -48,14 +48,17 @@ class FTDIDeviceManager:
         Args:
             simulation_mode: If True, runs in simulation mode without accessing hardware
         """
-        self.gpio_device1: Optional[GpioMpsseController] = None
-        self.gpio_device2: Optional[GpioMpsseController] = None 
-        self.gpio_device3: Optional[GpioMpsseController] = None
+        # Using device indices that match ftd2xx indexing (starting at 0)
+        self.gpio_device0: Optional[GpioMpsseController] = None
+        self.gpio_device1: Optional[GpioMpsseController] = None 
+        self.gpio_device2: Optional[GpioMpsseController] = None
         self.device_urls: List[str] = []
         self.device_count: int = 0
         self.simulation_mode = simulation_mode
         # Store device serials to bridge the gap between detection methods
         self.detected_serials: dict = {}
+        # Track which devices are actually configured
+        self.configured_devices: list = []
         
         # Check if we should use simulation mode
         if sys.platform == 'win32' and not simulation_mode:
@@ -92,9 +95,9 @@ class FTDIDeviceManager:
     def _discover_devices(self) -> None:
         """Discover connected FTDI devices using only ftd2xx."""
         try:
+            self.gpio_device0 = GpioMpsseController()
             self.gpio_device1 = GpioMpsseController()
             self.gpio_device2 = GpioMpsseController()
-            self.gpio_device3 = GpioMpsseController()
             
             # Log which backend we're using
             backend = os.environ.get('PYFTDI_BACKEND', 'default')
@@ -256,18 +259,18 @@ class FTDIDeviceManager:
         # Log the device URLs we have at this point
         logger.debug(f"Configure devices - device URLs at start: {self.device_urls}")
         
-        # For Windows, we need special handling for ftd2xx
+        # For ftd2xx backend, we need special handling
         import sys
-        windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
-        logger.debug(f"Windows ftd2xx mode: {windows_ftd2xx_mode}")
+        ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        logger.debug(f"ftd2xx mode: {ftd2xx_mode}")
         
         for device_idx, url in enumerate(self.device_urls):
             try:
-                # Special handling for Windows with ftd2xx backend
-                if windows_ftd2xx_mode:
-                    logger.info(f"Using Windows-specific configuration approach for {url}")
+                # Special handling for ftd2xx backend
+                if ftd2xx_mode:
+                    logger.info(f"Using ftd2xx-specific configuration approach for {url}")
                     
-                    # For Windows, we need to properly initialize GpioMpsseController
+                    # For ftd2xx backend, we need to properly initialize GpioMpsseController
                     try:
                         # Check if we need to try an alternative approach with direct device URL
                         if "UNKNOWN" in url:
@@ -276,13 +279,33 @@ class FTDIDeviceManager:
                             url = "ftdi://ftdi:232h/1"  # Use first available device
                             
                         # Properly configure the existing GpioMpsseController instance
-                        if device_idx == 0 and self.gpio_device1:
-                            logger.debug(f"Configuring FTDI device 1 with Windows-specific approach: {url}")
+                        if device_idx == 0 and self.gpio_device0:
+                            logger.debug(f"Configuring FTDI device 0 with ftd2xx-specific approach: {url}")
                             try:
                                 # Create a new controller to avoid issues with previous configuration attempts
-                                self.gpio_device1 = GpioMpsseController()
+                                self.gpio_device0 = GpioMpsseController()
                                 
                                 # Use simpler configuration approach
+                                self.gpio_device0.configure(
+                                    url, 
+                                    direction=0xFF,  # All pins as outputs
+                                    frequency=1e3,   # 1 kHz
+                                    initial=0x0      # Initial value 0
+                                )
+                                logger.info(f"Successfully configured device 0 with MPSSE mode")
+                                # Track that device 0 is configured
+                                if 0 not in self.configured_devices:
+                                    self.configured_devices.append(0)
+                            except Exception as e:
+                                logger.error(f"Error configuring device 0: {e}")
+                                # Fall back to simulation for this device
+                                self.gpio_device0 = None
+                        elif device_idx == 1 and self.gpio_device1:
+                            logger.debug(f"Configuring FTDI device 1 with ftd2xx-specific approach: {url}")
+                            try:
+                                # Create a new controller
+                                self.gpio_device1 = GpioMpsseController()
+                                
                                 self.gpio_device1.configure(
                                     url, 
                                     direction=0xFF,  # All pins as outputs
@@ -290,12 +313,15 @@ class FTDIDeviceManager:
                                     initial=0x0      # Initial value 0
                                 )
                                 logger.info(f"Successfully configured device 1 with MPSSE mode")
+                                # Track that device 1 is configured
+                                if 1 not in self.configured_devices:
+                                    self.configured_devices.append(1)
                             except Exception as e:
                                 logger.error(f"Error configuring device 1: {e}")
                                 # Fall back to simulation for this device
                                 self.gpio_device1 = None
-                        elif device_idx == 1 and self.gpio_device2:
-                            logger.debug(f"Configuring FTDI device 2 with Windows-specific approach: {url}")
+                        elif device_idx == 2 and self.gpio_device2:
+                            logger.debug(f"Configuring FTDI device 2 with ftd2xx-specific approach: {url}")
                             try:
                                 # Create a new controller
                                 self.gpio_device2 = GpioMpsseController()
@@ -307,27 +333,13 @@ class FTDIDeviceManager:
                                     initial=0x0      # Initial value 0
                                 )
                                 logger.info(f"Successfully configured device 2 with MPSSE mode")
+                                # Track that device 2 is configured
+                                if 2 not in self.configured_devices:
+                                    self.configured_devices.append(2)
                             except Exception as e:
                                 logger.error(f"Error configuring device 2: {e}")
                                 # Fall back to simulation for this device
                                 self.gpio_device2 = None
-                        elif device_idx == 2 and self.gpio_device3:
-                            logger.debug(f"Configuring FTDI device 3 with Windows-specific approach: {url}")
-                            try:
-                                # Create a new controller
-                                self.gpio_device3 = GpioMpsseController()
-                                
-                                self.gpio_device3.configure(
-                                    url, 
-                                    direction=0xFF,  # All pins as outputs
-                                    frequency=1e3,   # 1 kHz
-                                    initial=0x0      # Initial value 0
-                                )
-                                logger.info(f"Successfully configured device 3 with MPSSE mode")
-                            except Exception as e:
-                                logger.error(f"Error configuring device 3: {e}")
-                                # Fall back to simulation for this device
-                                self.gpio_device3 = None
                                 
                         # Continue to next device
                         continue
@@ -335,37 +347,61 @@ class FTDIDeviceManager:
                     except ImportError as e:
                         logger.error(f"Failed to import necessary module for device access: {e}")
                     except Exception as e:
-                        logger.error(f"Error in Windows-specific device configuration: {e}")
+                        logger.error(f"Error in ftd2xx-specific device configuration: {e}")
                 
                 # Standard configuration approach
-                if device_idx == 0 and self.gpio_device1:
+                if device_idx == 0 and self.gpio_device0:
+                    logger.debug(f"Configuring FTDI device 0: {url}")
+                    try:
+                        self.gpio_device0.configure(
+                            url, 
+                            direction=(0xFF & ((1 << 8) - 1)), 
+                            frequency=1e3, 
+                            initial=0x0
+                        )
+                        # Track successful configuration
+                        if 0 not in self.configured_devices:
+                            self.configured_devices.append(0)
+                        logger.info(f"Successfully configured device 0 with standard approach")
+                    except Exception as e:
+                        logger.error(f"Error configuring device 0 with standard approach: {e}")
+                        self.gpio_device0 = None
+                elif device_idx == 1 and self.gpio_device1:
                     logger.debug(f"Configuring FTDI device 1: {url}")
-                    self.gpio_device1.configure(
-                        url, 
-                        direction=(0xFF & ((1 << 8) - 1)), 
-                        frequency=1e3, 
-                        initial=0x0
-                    )
-                elif device_idx == 1 and self.gpio_device2:
+                    try:
+                        self.gpio_device1.configure(
+                            url, 
+                            direction=(0xFF & ((1 << 8) - 1)), 
+                            frequency=1e3, 
+                            initial=0x0
+                        )
+                        # Track successful configuration
+                        if 1 not in self.configured_devices:
+                            self.configured_devices.append(1)
+                        logger.info(f"Successfully configured device 1 with standard approach")
+                    except Exception as e:
+                        logger.error(f"Error configuring device 1 with standard approach: {e}")
+                        self.gpio_device1 = None
+                elif device_idx == 2 and self.gpio_device2:
                     logger.debug(f"Configuring FTDI device 2: {url}")
-                    self.gpio_device2.configure(
-                        url, 
-                        direction=(0xFF & ((1 << 8) - 1)), 
-                        frequency=1e3, 
-                        initial=0x0
-                    )
-                elif device_idx == 2 and self.gpio_device3:
-                    logger.debug(f"Configuring FTDI device 3: {url}")
-                    self.gpio_device3.configure(
-                        url, 
-                        direction=(0xFF & ((1 << 8) - 1)), 
-                        frequency=1e3, 
-                        initial=0x0
-                    )
+                    try:
+                        self.gpio_device2.configure(
+                            url, 
+                            direction=(0xFF & ((1 << 8) - 1)), 
+                            frequency=1e3, 
+                            initial=0x0
+                        )
+                        # Track successful configuration
+                        if 2 not in self.configured_devices:
+                            self.configured_devices.append(2)
+                        logger.info(f"Successfully configured device 2 with standard approach")
+                    except Exception as e:
+                        logger.error(f"Error configuring device 2 with standard approach: {e}")
+                        self.gpio_device2 = None
             except pyftdi.ftdi.FtdiError as e:
                 if "Operation not supported" in str(e) and sys.platform == 'win32':
-                    logger.warning(f"Windows USB access limitation detected: {e}")
-                    logger.warning("This is likely due to Windows USB driver restrictions. Try running as Administrator.")
+                    logger.warning(f"USB access limitation detected with ftd2xx backend: {e}")
+                    logger.warning("This is likely due to USB driver restrictions. Try running as Administrator.")
                     logger.warning("Falling back to simulation mode")
                     self.simulation_mode = True
                     # Add a simulated device for testing
@@ -382,6 +418,15 @@ class FTDIDeviceManager:
                 logger.error(f"OS error configuring {url}: {e}")
             except Exception as e:
                 logger.error(f"Unexpected error configuring {url}: {e}")
+                
+        # Report on the final configuration state
+        if self.configured_devices:
+            logger.info(f"Successfully configured {len(self.configured_devices)} FTDI device(s): {self.configured_devices}")
+        else:
+            logger.warning("No FTDI devices were successfully configured")
+            if not self.simulation_mode:
+                logger.warning("Switching to simulation mode since no devices were configured")
+                self.simulation_mode = True
     
     def write_bcd(self, bcd_value: int) -> None:
         """Write BCD value to all configured FTDI devices.
@@ -399,30 +444,39 @@ class FTDIDeviceManager:
             logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
         
-        # Check for Windows - we need special handling for ftd2xx backend
+        # Check for ftd2xx backend - we need special handling
         import sys
-        windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
-        # For Windows, use appropriate handling for ftd2xx backend
-        if windows_ftd2xx_mode:
-            devices = [
-                (1, self.gpio_device1),
-                (2, self.gpio_device2),
-                (3, self.gpio_device3)
-            ]
+        # Use appropriate handling for ftd2xx backend
+        if ftd2xx_mode:
+            # Only use devices that were successfully configured
+            devices = []
+            if 0 in self.configured_devices and self.gpio_device0:
+                devices.append((0, self.gpio_device0))
+            if 1 in self.configured_devices and self.gpio_device1:
+                devices.append((1, self.gpio_device1))
+            if 2 in self.configured_devices and self.gpio_device2:
+                devices.append((2, self.gpio_device2))
+            
+            # If no devices were configured, switch to simulation mode
+            if not devices:
+                logger.warning("No devices were successfully configured. Switching to simulation mode.")
+                self.simulation_mode = True
+                logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
+                return
             
             for device_num, gpio in devices:
-                if gpio:
-                    try:
-                        # Use standard GPIO write method which handles MPSSE internally
-                        gpio.write(bcd_value)
-                        logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device {device_num} on Windows")
-                    except Exception as e:
-                        logger.error(f"Error writing to FTDI device {device_num} on Windows: {e}")
-                        # If write fails, fall back to simulation mode
-                        logger.warning(f"FTDI write failed on Windows, switching to simulation mode")
-                        self.simulation_mode = True
-                        break
+                try:
+                    # Use standard GPIO write method which handles MPSSE internally
+                    gpio.write(bcd_value)
+                    logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device {device_num} using ftd2xx backend")
+                except Exception as e:
+                    logger.error(f"Error writing to FTDI device {device_num} using ftd2xx backend: {e}")
+                    # If write fails, fall back to simulation mode
+                    logger.warning(f"FTDI write failed with ftd2xx backend, switching to simulation mode")
+                    self.simulation_mode = True
+                    break
             
             # If we've switched to simulation mode, return after logging
             if self.simulation_mode:
@@ -432,47 +486,83 @@ class FTDIDeviceManager:
             # If we successfully wrote via standard method, we're done
             return
             
-        # Standard GPIO write for non-Windows or ftd2xx backend
-        # Write to each device with individual error handling
-        if self.device_count > 0 and self.gpio_device1:
+        # Standard GPIO write for non-ftd2xx backend
+        # Only use devices that were successfully configured
+        if not self.configured_devices:
+            logger.warning("No devices were successfully configured. Switching to simulation mode.")
+            self.simulation_mode = True
+            logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
+            return
+            
+        # Write to each configured device with individual error handling
+        if 0 in self.configured_devices and self.gpio_device0:
             try:
-                self.gpio_device1.write(bcd_value)
-                logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 1")
+                self.gpio_device0.write(bcd_value)
+                logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 0")
             except pyftdi.ftdi.FtdiError as e:
-                logger.error(f"FTDI driver error writing to device 1: {e}")
-                # If we see "Operation not supported" on Windows, switch to simulation
+                logger.error(f"FTDI driver error writing to device 0: {e}")
+                # If we see "Operation not supported" with ftd2xx backend, switch to simulation
                 if "Operation not supported" in str(e) and sys.platform == 'win32':
-                    logger.warning("Windows USB access limitation detected. Switching to simulation mode.")
+                    logger.warning("USB access limitation detected with ftd2xx backend. Switching to simulation mode.")
                     self.simulation_mode = True
                     # Log the simulated write
                     logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
                     return
             except OSError as e:
+                logger.error(f"OS error writing to device 0: {e}")
+                # Remove from configured devices
+                self.configured_devices.remove(0)
+            except Exception as e:
+                logger.error(f"Unexpected error writing to device 0: {e}")
+                # Remove from configured devices
+                if 0 in self.configured_devices:
+                    self.configured_devices.remove(0)
+                
+        if 1 in self.configured_devices and self.gpio_device1:
+            try:
+                self.gpio_device1.write(bcd_value)
+                logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 1")
+            except pyftdi.ftdi.FtdiError as e:
+                logger.error(f"FTDI driver error writing to device 1: {e}")
+                # Remove from configured devices
+                if 1 in self.configured_devices:
+                    self.configured_devices.remove(1)
+            except OSError as e:
                 logger.error(f"OS error writing to device 1: {e}")
+                # Remove from configured devices
+                if 1 in self.configured_devices:
+                    self.configured_devices.remove(1)
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 1: {e}")
+                # Remove from configured devices
+                if 1 in self.configured_devices:
+                    self.configured_devices.remove(1)
                 
-        if self.device_count > 1 and self.gpio_device2:
+        if 2 in self.configured_devices and self.gpio_device2:
             try:
                 self.gpio_device2.write(bcd_value)
                 logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 2")
             except pyftdi.ftdi.FtdiError as e:
                 logger.error(f"FTDI driver error writing to device 2: {e}")
+                # Remove from configured devices
+                if 2 in self.configured_devices:
+                    self.configured_devices.remove(2)
             except OSError as e:
                 logger.error(f"OS error writing to device 2: {e}")
+                # Remove from configured devices
+                if 2 in self.configured_devices:
+                    self.configured_devices.remove(2)
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 2: {e}")
-                
-        if self.device_count > 2 and self.gpio_device3:
-            try:
-                self.gpio_device3.write(bcd_value)
-                logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 3")
-            except pyftdi.ftdi.FtdiError as e:
-                logger.error(f"FTDI driver error writing to device 3: {e}")
-            except OSError as e:
-                logger.error(f"OS error writing to device 3: {e}")
-            except Exception as e:
-                logger.error(f"Unexpected error writing to device 3: {e}")
+                # Remove from configured devices
+                if 2 in self.configured_devices:
+                    self.configured_devices.remove(2)
+                    
+        # If no devices remain configured, switch to simulation mode
+        if not self.configured_devices:
+            logger.warning("All devices have encountered errors. Switching to simulation mode.")
+            self.simulation_mode = True
+            logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
     
     def close(self) -> None:
         """Close all FTDI devices and release resources.
@@ -485,15 +575,26 @@ class FTDIDeviceManager:
             logger.info("SIMULATION: Closing simulated FTDI devices")
             return
             
-        # Check for Windows with ftd2xx - we need special handling
+        # Check for ftd2xx backend - we need special handling
         import sys
-        windows_ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
-        devices = [
-            (1, self.gpio_device1),
-            (2, self.gpio_device2),
-            (3, self.gpio_device3)
-        ]
+        # Only try to close devices that were configured
+        devices = []
+        if 0 in self.configured_devices and self.gpio_device0:
+            devices.append((0, self.gpio_device0))
+        if 1 in self.configured_devices and self.gpio_device1:
+            devices.append((1, self.gpio_device1))
+        if 2 in self.configured_devices and self.gpio_device2:
+            devices.append((2, self.gpio_device2))
+        
+        # Also include any initialized but not configured devices
+        if self.gpio_device0 and 0 not in self.configured_devices:
+            devices.append((0, self.gpio_device0))
+        if self.gpio_device1 and 1 not in self.configured_devices:
+            devices.append((1, self.gpio_device1))
+        if self.gpio_device2 and 2 not in self.configured_devices:
+            devices.append((2, self.gpio_device2))
         
         for device_num, gpio in devices:
             if gpio:
@@ -504,7 +605,7 @@ class FTDIDeviceManager:
                     gpio.close()
                 except pyftdi.ftdi.FtdiError as e:
                     if "Operation not supported" in str(e) and sys.platform == 'win32':
-                        logger.warning(f"Windows USB access limitation detected while closing device {device_num}: {e}")
+                        logger.warning(f"USB access limitation detected with ftd2xx backend while closing device {device_num}: {e}")
                     else:
                         logger.error(f"Error closing FTDI device {device_num}: {e}")
                 except Exception as e:
