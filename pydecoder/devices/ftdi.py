@@ -119,29 +119,48 @@ class FTDIDeviceManager:
                     if device_info:
                         logger.info(f"DEBUG: Raw device info for device {i}: {device_info}")
                         # Safer access to device details with fallbacks
+                        # From the log output, it appears the keys are: 'index', 'flags', 'type', 'id', 'location', 'serial', 'description'
                         try:
-                            flags = device_info.get("Flags", 0)
-                            device_type = device_info.get("Type", 0)
-                            device_id = device_info.get("ID", 0) 
-                            description = device_info.get("Description", b"Unknown")
-                            serial = device_info.get("SerialNumber", None)
-                            logger.info(f"DEBUG: Accessed device details using get() method")
-                        except AttributeError:
-                            # Handle dict-like objects differently
-                            logger.info(f"DEBUG: AttributeError with get(), trying dict access")
-                            flags = device_info["Flags"] if "Flags" in device_info else 0
-                            device_type = device_info["Type"] if "Type" in device_info else 0
-                            device_id = device_info["ID"] if "ID" in device_info else 0
-                            description = device_info["Description"] if "Description" in device_info else b"Unknown"
-                            serial = device_info["SerialNumber"] if "SerialNumber" in device_info else None
+                            # Directly match the keys from the log output
+                            flags = device_info.get("flags", 0)
+                            device_type = device_info.get("type", 0)
+                            device_id = device_info.get("id", 0) 
+                            description = device_info.get("description", b"Unknown")
+                            serial = device_info.get("serial", None)
+                            logger.info(f"DEBUG: Accessed device details using exact keys from log output")
+                        except (AttributeError, TypeError):
+                            # Fall back to direct dictionary access
+                            logger.info(f"DEBUG: Error with get(), trying direct dictionary access")
+                            try:
+                                flags = device_info["flags"]
+                                device_type = device_info["type"]
+                                device_id = device_info["id"]
+                                description = device_info["description"]
+                                serial = device_info["serial"]
+                            except (KeyError, TypeError) as e:
+                                logger.warning(f"Could not access device info fields: {e}")
+                                flags = 0
+                                device_type = 0
+                                device_id = 0
+                                description = b"Unknown"
+                                serial = None
                         logger.info(f"DEBUG: Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
                         
                         # Safely access attributes that might be missing
                         serial_str = serial.decode() if serial else f"UNKNOWN{i}"
+                        desc_str = description.decode() if description else f"UNKNOWN{i}"
                         logger.info(f"DEBUG: Serial string: {serial_str}")
+                        logger.info(f"DEBUG: Description string: {desc_str}")
                         
                         # Store device info keyed by product ID for later use (0x6014 = FT232H)
-                        if device_type == 8 or (description and (b"232H" in description or b"C232HM-EDHSL-0" in description)):  # FT232H
+                        # Check for C232HM devices in both binary and string formats (after decoding)
+                        is_c232hm = False
+                        if description and (b"232H" in description or b"C232HM" in description or b"C232HM-EDHSL-0" in description):
+                            is_c232hm = True
+                        elif desc_str and ("232H" in desc_str or "C232HM" in desc_str or "C232HM-EDHSL-0" in desc_str):
+                            is_c232hm = True
+                            
+                        if device_type == 8 or is_c232hm:  # FT232H
                             logger.info(f"DEBUG: Device {i} is FT232H type")
                             product_id = 0x6014
                             self.detected_serials[product_id] = serial_str
@@ -153,7 +172,7 @@ class FTDIDeviceManager:
                             self.device_urls.append(device_url)
                             device_found = True
                             logger.info(f"DEBUG: Added device to device_urls, current count: {len(self.device_urls)}")
-                        elif device_type == 5 or (description and b"232R" in description):  # FT232R
+                        elif device_type == 5 or (description and b"232R" in description) or (desc_str and "232R" in desc_str):  # FT232R
                             logger.info(f"DEBUG: Device {i} is FT232R type (not compatible)")
                             product_id = 0x6001
                             self.detected_serials[product_id] = serial_str
