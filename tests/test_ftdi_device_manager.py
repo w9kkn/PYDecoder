@@ -17,10 +17,26 @@ class TestFTDIDeviceManager(unittest.TestCase):
         # Create patches
         self.gpio_controller_patcher = patch('pydecoder.devices.ftdi.GpioMpsseController')
         self.ftdi_list_devices_patcher = patch('pyftdi.ftdi.Ftdi.list_devices')
+        self.ftd2xx_patcher = patch('pydecoder.devices.ftdi.ftd2xx')
+        self.env_patcher = patch.dict('os.environ', {'PYFTDI_BACKEND': 'ftd2xx'})
         
         # Start patches
         self.mock_gpio_controller = self.gpio_controller_patcher.start()
         self.mock_list_devices = self.ftdi_list_devices_patcher.start()
+        self.mock_ftd2xx = self.ftd2xx_patcher.start()
+        self.env_patcher.start()
+        
+        # Configure ftd2xx mock
+        self.mock_ftd2xx.createDeviceInfoList.return_value = 3
+        self.mock_ftd2xx.getDeviceInfoDetail.side_effect = [
+            {'index': 0, 'flags': 2, 'type': 8, 'id': 67330068, 'location': 40, 'serial': b'A123', 'description': b'C232HM-EDHSL-0'},
+            {'index': 1, 'flags': 2, 'type': 8, 'id': 67330068, 'location': 41, 'serial': b'B456', 'description': b'C232HM-EDHSL-0'},
+            {'index': 2, 'flags': 2, 'type': 8, 'id': 67330068, 'location': 42, 'serial': b'C789', 'description': b'C232HM-EDHSL-0'},
+        ]
+        
+        # For direct ftd2xx mode, mock the open and device methods
+        self.mock_ft_device = Mock()
+        self.mock_ftd2xx.open.return_value = self.mock_ft_device
         
         # Configure list_devices mock to return some test devices
         self.mock_list_devices.return_value = [
@@ -40,6 +56,8 @@ class TestFTDIDeviceManager(unittest.TestCase):
         # Stop patches
         self.gpio_controller_patcher.stop()
         self.ftdi_list_devices_patcher.stop()
+        self.ftd2xx_patcher.stop()
+        self.env_patcher.stop()
     
     def test_init(self):
         """Test device manager initialization and discovery."""
@@ -119,6 +137,37 @@ class TestFTDIDeviceManager(unittest.TestCase):
         self.mock_gpio1.write.assert_called_once_with(0b0101)
         self.mock_gpio2.write.assert_called_once_with(0b0101)
         self.mock_gpio3.write.assert_called_once_with(0b0101)
+        
+        # Verify device 0 was removed from configured devices after the error
+        self.assertNotIn(0, manager.configured_devices)
+        
+    def test_direct_ftd2xx_mode(self):
+        """Test direct ftd2xx mode."""
+        # Force the direct mode initialization by making the regular mode fail
+        # Configure the GPIO mock to raise an exception during configure
+        self.mock_gpio1.configure.side_effect = pyftdi.ftdi.FtdiError("No backend available")
+        
+        # Create manager instance - should use direct ftd2xx mode
+        manager = FTDIDeviceManager()
+        
+        # Verify direct mode was enabled
+        self.assertTrue(manager._direct_mode)
+        
+        # Verify ftd2xx open was called
+        self.mock_ftd2xx.open.assert_called()
+        
+        # Verify device was properly configured
+        self.mock_ft_device.setBitMode.assert_called_with(0xFF, 0x02)
+        self.mock_ft_device.setTimeouts.assert_called_with(1000, 1000)
+        
+        # Write a BCD value in direct mode
+        manager.write_bcd(0b0101)
+        
+        # Verify direct write was used instead of gpio controller write
+        self.mock_ft_device.write.assert_called_with(bytes([0b0101]))
+        
+        # Verify device 0 is in the configured devices list
+        self.assertIn(0, manager.configured_devices)
     
     def test_close(self):
         """Test closing devices."""
@@ -148,6 +197,28 @@ class TestFTDIDeviceManager(unittest.TestCase):
         self.mock_gpio1.close.assert_called_once()
         self.mock_gpio2.close.assert_called_once()
         self.mock_gpio3.close.assert_called_once()
+        
+    def test_close_direct_mode(self):
+        """Test closing in direct ftd2xx mode."""
+        # Force the direct mode initialization by making the regular mode fail
+        self.mock_gpio1.configure.side_effect = pyftdi.ftdi.FtdiError("No backend available")
+        
+        # Create manager instance - should use direct ftd2xx mode
+        manager = FTDIDeviceManager()
+        
+        # Verify direct mode was enabled
+        self.assertTrue(manager._direct_mode)
+        
+        # Close devices
+        manager.close()
+        
+        # Verify ftd2xx device was closed
+        self.mock_ft_device.close.assert_called_once()
+        
+        # Verify GPIO close wasn't called (since we're in direct mode)
+        self.mock_gpio1.close.assert_not_called()
+        self.mock_gpio2.close.assert_not_called()
+        self.mock_gpio3.close.assert_not_called()
     
     def test_get_device_urls(self):
         """Test getting device URLs."""

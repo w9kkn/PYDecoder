@@ -1,4 +1,15 @@
-"""FTDI device handling for PYDecoder."""
+"""FTDI device handling for PYDecoder.
+
+This module provides functionality to interact with FTDI devices, primarily
+focusing on FT232H devices for BCD output. It implements two approaches:
+
+1. Standard approach: Using pyftdi's GpioMpsseController for device access
+2. Direct approach: Using ftd2xx library directly for more reliable device access
+
+The module will automatically try the direct approach first for more reliable operation, 
+and fall back to the standard approach if necessary. If hardware access fails entirely,
+it will switch to simulation mode.
+"""
 from typing import List, Optional
 
 import logging
@@ -10,23 +21,22 @@ from pyftdi.gpio import GpioMpsseController
 logger = logging.getLogger(__name__)
 
 # Check if backend was already selected in main.py
-if sys.platform == 'win32':
-    backend = os.environ.get('PYFTDI_BACKEND', '')
-    if backend == 'ftd2xx':
-        logger.debug("Using ftd2xx backend as configured in main.py")
-    else:
-        # Always ensure we're using ftd2xx on Windows
-        try:
-            import ftd2xx
-            logger.debug("Successfully imported ftd2xx driver")
-            os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
-            logger.info("Using ftd2xx backend on Windows")
-        except ImportError:
-            logger.error("ftd2xx driver not available on Windows. It is required for this application.")
-            logger.error("Please install ftd2xx package with: pip install ftd2xx")
-            # We'll still set the backend to ftd2xx even though it's not available
-            # This ensures we don't try to use libusb
-            os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+backend = os.environ.get('PYFTDI_BACKEND', '')
+if backend == 'ftd2xx':
+    logger.debug("Using ftd2xx backend as configured in main.py")
+else:
+    # Always ensure we're using ftd2xx backend
+    try:
+        import ftd2xx
+        logger.debug("Successfully imported ftd2xx driver")
+        os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
+        logger.info("Using ftd2xx backend for FTDI device access")
+    except ImportError:
+        logger.error("ftd2xx driver not available. It is required for this application.")
+        logger.error("Please install ftd2xx package with: pip install ftd2xx")
+        # We'll still set the backend to ftd2xx even though it's not available
+        # This ensures we don't try to use libusb
+        os.environ['PYFTDI_BACKEND'] = 'ftd2xx'
 
 class FTDIDeviceManager:
     """Manager for FTDI devices.
@@ -56,7 +66,8 @@ class FTDIDeviceManager:
         self._ft232h_device0 = None
         self._ft232h_device1 = None
         self._ft232h_device2 = None
-        # Flag to indicate if we're using direct ftd2xx mode
+        # Flag to indicate if we're using direct ftd2xx mode instead of pyftdi's abstraction layer
+        # This is set to True when we successfully configure a device using direct ftd2xx approach
         self._direct_mode = False
         
         self.device_urls: List[str] = []
@@ -285,7 +296,7 @@ class FTDIDeviceManager:
         
         # For ftd2xx backend, we need special handling
         import sys
-        ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        ftd2xx_mode = os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         logger.debug(f"ftd2xx mode: {ftd2xx_mode}")
         
         for device_idx, url in enumerate(self.device_urls):
@@ -309,9 +320,12 @@ class FTDIDeviceManager:
                                 # Create a new controller to avoid issues with previous configuration attempts
                                 self.gpio_device0 = GpioMpsseController()
                                 
-                                # Direct approach using ftd2xx
+                                # Direct approach using ftd2xx - bypass pyftdi completely
+                                # This approach uses the ftd2xx library directly to communicate with the FTDI device
+                                # rather than relying on pyftdi's abstraction layer, which can have backend issues.
+                                # It opens the device directly, configures it for MPSSE mode, and gives us direct access.
                                 try:
-                                    # Instead of using pyftdi's GPIO controller, try direct ftd2xx approach
+                                    # Instead of using pyftdi's GPIO controller, try direct ftd2xx approach for more reliable operation
                                     import ftd2xx
                                     logger.debug("Imported ftd2xx for direct device configuration")
                                     
@@ -508,7 +522,7 @@ class FTDIDeviceManager:
                         logger.error(f"Error configuring device 2 with standard approach: {e}")
                         self.gpio_device2 = None
             except pyftdi.ftdi.FtdiError as e:
-                if "Operation not supported" in str(e) and sys.platform == 'win32':
+                if "Operation not supported" in str(e) and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx':
                     logger.warning(f"USB access limitation detected with ftd2xx backend: {e}")
                     logger.warning("This is likely due to USB driver restrictions. Try running as Administrator.")
                     logger.warning("Falling back to simulation mode")
@@ -553,7 +567,9 @@ class FTDIDeviceManager:
             logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
         
-        # Check for direct ftd2xx mode - this takes precedence
+        # Check for direct ftd2xx mode - this takes precedence over the pyftdi approach
+        # Direct mode uses the ftd2xx library to directly write data to the FTDI device 
+        # without going through pyftdi's abstraction layer, which can be more reliable
         if self._direct_mode:
             logger.debug(f"Using direct ftd2xx mode to write BCD value {bcd_value} (0x{bcd_value:02X})")
             # Write to device 0 if configured
@@ -581,7 +597,7 @@ class FTDIDeviceManager:
         # Standard handling using pyftdi's GpioMpsseController
         # Check for ftd2xx backend - we need special handling
         import sys
-        ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        ftd2xx_mode = os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
         # Use appropriate handling for ftd2xx backend
         if ftd2xx_mode:
@@ -637,7 +653,7 @@ class FTDIDeviceManager:
             except pyftdi.ftdi.FtdiError as e:
                 logger.error(f"FTDI driver error writing to device 0: {e}")
                 # If we see "Operation not supported" with ftd2xx backend, switch to simulation
-                if "Operation not supported" in str(e) and sys.platform == 'win32':
+                if "Operation not supported" in str(e) and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx':
                     logger.warning("USB access limitation detected with ftd2xx backend. Switching to simulation mode.")
                     self.simulation_mode = True
                     # Log the simulated write
@@ -745,7 +761,7 @@ class FTDIDeviceManager:
         # Standard pyftdi device handling
         # Check for ftd2xx backend - we need special handling
         import sys
-        ftd2xx_mode = sys.platform == 'win32' and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
+        ftd2xx_mode = os.environ.get('PYFTDI_BACKEND') == 'ftd2xx'
         
         # Only try to close devices that were configured
         devices = []
@@ -772,7 +788,7 @@ class FTDIDeviceManager:
                     logger.info(f"Closing FTDI device {device_num}")
                     gpio.close()
                 except pyftdi.ftdi.FtdiError as e:
-                    if "Operation not supported" in str(e) and sys.platform == 'win32':
+                    if "Operation not supported" in str(e) and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx':
                         logger.warning(f"USB access limitation detected with ftd2xx backend while closing device {device_num}: {e}")
                     else:
                         logger.error(f"Error closing FTDI device {device_num}: {e}")
