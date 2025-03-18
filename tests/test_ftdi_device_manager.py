@@ -157,14 +157,30 @@ class TestFTDIDeviceManager(unittest.TestCase):
         self.mock_ftd2xx.open.assert_called()
         
         # Verify device was properly configured
-        self.mock_ft_device.setBitMode.assert_called_with(0xFF, 0x02)
+        self.mock_ft_device.setBitMode.assert_any_call(0xFF, 0x02)
         self.mock_ft_device.setTimeouts.assert_called_with(1000, 1000)
+        self.mock_ft_device.resetDevice.assert_called_once()
+        
+        # Verify initialization commands were sent
+        expected_calls = [
+            mock.call(bytes([0x8A, 0x97, 0x8D])),  # Init commands
+            mock.call(bytes([0x80, 0x00, 0xFF]))   # Initial state
+        ]
+        self.mock_ft_device.write.assert_has_calls(expected_calls, any_order=False)
+        
+        # Reset write mock to check BCD write specifically
+        self.mock_ft_device.write.reset_mock()
         
         # Write a BCD value in direct mode
         manager.write_bcd(0b0101)
         
-        # Verify direct write was used instead of gpio controller write
-        self.mock_ft_device.write.assert_called_with(bytes([0b0101]))
+        # Verify proper MPSSE command sequence was used
+        expected_mpsse_cmd = bytes([
+            0x80,      # Command to set data bits low
+            0b0101,    # BCD value
+            0xFF       # Direction (all outputs)
+        ])
+        self.mock_ft_device.write.assert_called_with(expected_mpsse_cmd)
         
         # Verify device 0 is in the configured devices list
         self.assertIn(0, manager.configured_devices)

@@ -366,9 +366,39 @@ class FTDIDeviceManager:
                                             logger.debug(f"Opening device with index {device_idx}")
                                             self._ft232h_device0 = ftd2xx.open(device_idx)
                                             
-                                            # Configure for MPSSE mode (Mode 0)
-                                            self._ft232h_device0.setBitMode(0xFF, 0x02)  # Set all pins as outputs in MPSSE mode
+                                            # Configure for MPSSE mode
+                                            # Reset the device first
+                                            self._ft232h_device0.resetDevice()
+                                            
+                                            # Set timeouts
                                             self._ft232h_device0.setTimeouts(1000, 1000)  # Set read/write timeouts
+                                            
+                                            # Set USB parameters
+                                            self._ft232h_device0.setUSBParameters(4096, 4096)  # Set USB transfer sizes
+                                            
+                                            # Set flow control
+                                            self._ft232h_device0.setFlowControl(0x0100, 0, 0)  # No flow control
+                                            
+                                            # Set bit mode to MPSSE (0x02)
+                                            self._ft232h_device0.setBitMode(0, 0)  # Reset
+                                            self._ft232h_device0.setBitMode(0xFF, 0x02)  # Set all pins as outputs in MPSSE mode
+                                            
+                                            # Initialize the MPSSE mode with proper commands
+                                            # Disable clock divide by 5 for 60MHz master clock
+                                            # Disable adaptive clocking
+                                            # Disable three-phase clocking
+                                            init_commands = bytes([
+                                                0x8A, 0x97, 0x8D  # Disable special modes
+                                            ])
+                                            self._ft232h_device0.write(init_commands)
+                                            
+                                            # Initial state - set all outputs low
+                                            initial_state = bytes([
+                                                0x80,     # Command: set data bits low byte
+                                                0x00,     # Value: all pins low
+                                                0xFF      # Direction: all pins as outputs
+                                            ])
+                                            self._ft232h_device0.write(initial_state)
                                             
                                             # Create a simpler interface for our use
                                             self._direct_mode = True
@@ -575,14 +605,27 @@ class FTDIDeviceManager:
             # Write to device 0 if configured
             if 0 in self.configured_devices and self._ft232h_device0:
                 try:
-                    # Write to the device using direct ftd2xx commands
-                    # First create a single byte buffer with the BCD value
-                    data = bytes([bcd_value])
-                    bytes_written = self._ft232h_device0.write(data)
-                    if bytes_written == 1:
+                    # When using MPSSE mode, we need to use proper MPSSE commands to control the GPIO pins
+                    # MPSSE command 0x80 sets the lower 8 bits of the port
+                    # 
+                    # The command format is:
+                    # 0x80: Set data bits low byte
+                    # Next byte: Value to set
+                    # Next byte: Direction (1 = output, 0 = input) - we've already set this in configure
+                    
+                    # Create MPSSE command sequence to set all GPIO pins according to BCD value
+                    mpsse_command = bytes([
+                        0x80,           # Command: Set data bits low byte
+                        bcd_value,      # Value: the BCD value to set
+                        0xFF            # Direction: all pins as outputs (already set but included for completeness)
+                    ])
+                    
+                    # Send the MPSSE command to the device
+                    bytes_written = self._ft232h_device0.write(mpsse_command)
+                    if bytes_written == len(mpsse_command):
                         logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device 0 using direct ftd2xx mode")
                     else:
-                        logger.warning(f"Unexpected result writing to device 0: wrote {bytes_written} bytes")
+                        logger.warning(f"Unexpected result writing to device 0: wrote {bytes_written} bytes, expected {len(mpsse_command)}")
                 except Exception as e:
                     logger.error(f"Error writing to FTDI device 0 using direct ftd2xx: {e}")
                     # If write fails, remove device from configured list and check if we should switch to simulation
