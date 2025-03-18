@@ -167,24 +167,38 @@ class FTDIDeviceManager:
                     for i in range(device_count):
                         device_info = ftd2xx.getDeviceInfoDetail(i)
                         if device_info:
-                            flags, device_type, device_id, description, serial = [
-                                device_info[k] for k in ["Flags", "Type", "ID", "Description", "SerialNumber"]
-                            ]
+                            # Safer access to device details with fallbacks
+                            try:
+                                flags = device_info.get("Flags", 0)
+                                device_type = device_info.get("Type", 0)
+                                device_id = device_info.get("ID", 0) 
+                                description = device_info.get("Description", b"Unknown")
+                                serial = device_info.get("SerialNumber", None)
+                            except AttributeError:
+                                # Handle dict-like objects differently
+                                flags = device_info["Flags"] if "Flags" in device_info else 0
+                                device_type = device_info["Type"] if "Type" in device_info else 0
+                                device_id = device_info["ID"] if "ID" in device_info else 0
+                                description = device_info["Description"] if "Description" in device_info else b"Unknown"
+                                serial = device_info["SerialNumber"] if "SerialNumber" in device_info else None
                             logger.debug(f"Found device: Type: {device_type}, ID: {device_id}, Description: {description}, Serial: {serial}")
                             
+                            # Safely access attributes that might be missing
+                            serial_str = serial.decode() if serial else f"UNKNOWN{i}"
+                            
                             # Store device info keyed by product ID for later use (0x6014 = FT232H)
-                            if device_type == 8 or b"232H" in description:  # FT232H
+                            if device_type == 8 or (description and b"232H" in description):  # FT232H
                                 product_id = 0x6014
-                                self.detected_serials[product_id] = serial.decode()
-                                logger.debug(f"Stored serial for FT232H device: {serial.decode()}")
-                            elif device_type == 5 or b"232R" in description:  # FT232R
+                                self.detected_serials[product_id] = serial_str
+                                logger.debug(f"Stored serial for FT232H device: {serial_str}")
+                            elif device_type == 5 or (description and b"232R" in description):  # FT232R
                                 product_id = 0x6001
-                                self.detected_serials[product_id] = serial.decode()
-                                logger.debug(f"Stored serial for FT232R device: {serial.decode()}")
+                                self.detected_serials[product_id] = serial_str
+                                logger.debug(f"Stored serial for FT232R device: {serial_str}")
                             
                             # Only add the FTDI 232H devices
-                            if b"232H" in description or device_type == 8:  # 8 is FT232H
-                                device_url = f"ftdi://ftdi:232h:{serial.decode()}/1"
+                            if (description and b"232H" in description) or device_type == 8:  # 8 is FT232H
+                                device_url = f"ftdi://ftdi:232h:{serial_str}/1"
                                 logger.info(f"Found compatible FTDI device via ftd2xx: {device_url}")
                                 self.device_urls.append(device_url)
                     
@@ -340,10 +354,20 @@ class FTDIDeviceManager:
                     
                     # For Windows, we need to properly initialize GpioMpsseController
                     try:
+                        # Check if we need to try an alternative approach with direct device URL
+                        if "UNKNOWN" in url:
+                            # If we have an UNKNOWN serial, try with first available device instead
+                            logger.debug("Device has unknown serial number, trying with interface 1")
+                            url = "ftdi://ftdi:232h/1"  # Use first available device
+                            
                         # Properly configure the existing GpioMpsseController instance
                         if device_idx == 0 and self.gpio_device1:
                             logger.debug(f"Configuring FTDI device 1 with Windows-specific approach: {url}")
                             try:
+                                # Create a new controller to avoid issues with previous configuration attempts
+                                self.gpio_device1 = GpioMpsseController()
+                                
+                                # Use simpler configuration approach
                                 self.gpio_device1.configure(
                                     url, 
                                     direction=0xFF,  # All pins as outputs
@@ -353,9 +377,14 @@ class FTDIDeviceManager:
                                 logger.info(f"Successfully configured device 1 with MPSSE mode")
                             except Exception as e:
                                 logger.error(f"Error configuring device 1: {e}")
+                                # Fall back to simulation for this device
+                                self.gpio_device1 = None
                         elif device_idx == 1 and self.gpio_device2:
                             logger.debug(f"Configuring FTDI device 2 with Windows-specific approach: {url}")
                             try:
+                                # Create a new controller
+                                self.gpio_device2 = GpioMpsseController()
+                                
                                 self.gpio_device2.configure(
                                     url, 
                                     direction=0xFF,  # All pins as outputs
@@ -365,9 +394,14 @@ class FTDIDeviceManager:
                                 logger.info(f"Successfully configured device 2 with MPSSE mode")
                             except Exception as e:
                                 logger.error(f"Error configuring device 2: {e}")
+                                # Fall back to simulation for this device
+                                self.gpio_device2 = None
                         elif device_idx == 2 and self.gpio_device3:
                             logger.debug(f"Configuring FTDI device 3 with Windows-specific approach: {url}")
                             try:
+                                # Create a new controller
+                                self.gpio_device3 = GpioMpsseController()
+                                
                                 self.gpio_device3.configure(
                                     url, 
                                     direction=0xFF,  # All pins as outputs
@@ -377,6 +411,8 @@ class FTDIDeviceManager:
                                 logger.info(f"Successfully configured device 3 with MPSSE mode")
                             except Exception as e:
                                 logger.error(f"Error configuring device 3: {e}")
+                                # Fall back to simulation for this device
+                                self.gpio_device3 = None
                                 
                         # Continue to next device
                         continue
