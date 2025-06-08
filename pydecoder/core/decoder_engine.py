@@ -154,6 +154,10 @@ class DecoderEngine:
             logger.info("Closing N1MM listener socket")
             self.n1mm_listener.close()
             
+        # Close AntennaGenius connection
+        logger.info("Closing AntennaGenius connection")
+        self.antenna_genius.close()
+            
         # Close FTDI devices
         logger.info("Closing FTDI devices")
         self.ftdi_manager.close()

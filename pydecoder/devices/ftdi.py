@@ -628,9 +628,15 @@ class FTDIDeviceManager:
                         logger.warning(f"Unexpected result writing to device 0: wrote {bytes_written} bytes, expected {len(mpsse_command)}")
                 except Exception as e:
                     logger.error(f"Error writing to FTDI device 0 using direct ftd2xx: {e}")
-                    # If write fails, remove device from configured list and check if we should switch to simulation
+                    # If write fails, close the device and remove from configured list
                     if 0 in self.configured_devices:
                         self.configured_devices.remove(0)
+                    # Clean up the failed device
+                    try:
+                        self._ft232h_device0.close()
+                    except Exception:
+                        pass
+                    self._ft232h_device0 = None
                     if not self.configured_devices:
                         logger.warning("All devices have encountered errors. Switching to simulation mode.")
                         self.simulation_mode = True
@@ -667,10 +673,20 @@ class FTDIDeviceManager:
                     logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device {device_num} using ftd2xx backend")
                 except Exception as e:
                     logger.error(f"Error writing to FTDI device {device_num} using ftd2xx backend: {e}")
-                    # If write fails, fall back to simulation mode
-                    logger.warning(f"FTDI write failed with ftd2xx backend, switching to simulation mode")
-                    self.simulation_mode = True
-                    break
+                    # Remove from configured devices and clean up
+                    if device_num in self.configured_devices:
+                        self.configured_devices.remove(device_num)
+                    try:
+                        gpio.close()
+                    except Exception:
+                        pass
+                    # Clear the device reference
+                    if device_num == 0:
+                        self.gpio_device0 = None
+                    elif device_num == 1:
+                        self.gpio_device1 = None
+                    elif device_num == 2:
+                        self.gpio_device2 = None
             
             # If we've switched to simulation mode, return after logging
             if self.simulation_mode:
@@ -704,13 +720,24 @@ class FTDIDeviceManager:
                     return
             except OSError as e:
                 logger.error(f"OS error writing to device 0: {e}")
-                # Remove from configured devices
-                self.configured_devices.remove(0)
-            except Exception as e:
-                logger.error(f"Unexpected error writing to device 0: {e}")
-                # Remove from configured devices
+                # Remove from configured devices and clean up
                 if 0 in self.configured_devices:
                     self.configured_devices.remove(0)
+                try:
+                    self.gpio_device0.close()
+                except Exception:
+                    pass
+                self.gpio_device0 = None
+            except Exception as e:
+                logger.error(f"Unexpected error writing to device 0: {e}")
+                # Remove from configured devices and clean up
+                if 0 in self.configured_devices:
+                    self.configured_devices.remove(0)
+                try:
+                    self.gpio_device0.close()
+                except Exception:
+                    pass
+                self.gpio_device0 = None
                 
         if 1 in self.configured_devices and self.gpio_device1:
             try:
@@ -723,14 +750,24 @@ class FTDIDeviceManager:
                     self.configured_devices.remove(1)
             except OSError as e:
                 logger.error(f"OS error writing to device 1: {e}")
-                # Remove from configured devices
+                # Remove from configured devices and clean up
                 if 1 in self.configured_devices:
                     self.configured_devices.remove(1)
+                try:
+                    self.gpio_device1.close()
+                except Exception:
+                    pass
+                self.gpio_device1 = None
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 1: {e}")
-                # Remove from configured devices
+                # Remove from configured devices and clean up
                 if 1 in self.configured_devices:
                     self.configured_devices.remove(1)
+                try:
+                    self.gpio_device1.close()
+                except Exception:
+                    pass
+                self.gpio_device1 = None
                 
         if 2 in self.configured_devices and self.gpio_device2:
             try:
@@ -743,14 +780,24 @@ class FTDIDeviceManager:
                     self.configured_devices.remove(2)
             except OSError as e:
                 logger.error(f"OS error writing to device 2: {e}")
-                # Remove from configured devices
+                # Remove from configured devices and clean up
                 if 2 in self.configured_devices:
                     self.configured_devices.remove(2)
+                try:
+                    self.gpio_device2.close()
+                except Exception:
+                    pass
+                self.gpio_device2 = None
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 2: {e}")
-                # Remove from configured devices
+                # Remove from configured devices and clean up
                 if 2 in self.configured_devices:
                     self.configured_devices.remove(2)
+                try:
+                    self.gpio_device2.close()
+                except Exception:
+                    pass
+                self.gpio_device2 = None
                     
         # If no devices remain configured, switch to simulation mode
         if not self.configured_devices:

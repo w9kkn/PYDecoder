@@ -43,7 +43,9 @@ class TestAntennaGenius(unittest.TestCase):
         self.assertTrue(result)
         
         # Verify socket operations
-        mock_socket.settimeout.assert_called_once_with(0.5)
+        # Check for initial timeout and keepalive settings
+        mock_socket.settimeout.assert_any_call(0.5)
+        mock_socket.setsockopt.assert_called_once_with(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         mock_socket.connect.assert_called_once_with(("192.168.1.100", 9007))
         mock_socket.sendall.assert_called_once_with(b"C1|port set 1 band=5 \n")
         
@@ -133,11 +135,14 @@ class TestAntennaGenius(unittest.TestCase):
 
 
     @patch('socket.socket')
-    def test_multiple_commands(self, mock_socket_class):
+    @patch('time.time')
+    def test_multiple_commands(self, mock_time, mock_socket_class):
         """Test that multiple commands increment the counter."""
         # Configure mock
         mock_socket = MagicMock()
         mock_socket_class.return_value = mock_socket
+        # Make time appear constant so socket doesn't get closed
+        mock_time.return_value = 1000.0
         
         # Call method multiple times
         self.ag.set_antenna("192.168.1.100", 9007, "1", 5)

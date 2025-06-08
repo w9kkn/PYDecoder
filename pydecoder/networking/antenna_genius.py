@@ -1,6 +1,7 @@
 """Module for communicating with 4O3A Antenna Genius devices."""
 import logging
 import socket
+import time
 from typing import Tuple, Optional, Callable
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ class AntennaGenius:
         self.status_callback = status_callback
         self.socket = None
         self.command_counter = 0
+        self.last_connection_time = 0
+        self.connection_address = None
     
     def set_antenna(self, ip_address: str, tcp_port: int, radio_nr: str, antenna_port: int) -> bool:
         """Send antenna selection command to AntennaGenius.
@@ -45,13 +48,40 @@ class AntennaGenius:
         command_str = f"C{self.command_counter}|port set {radio_nr} band={antenna_port} \n"
 
         try:
-            # Create socket connection if not already connected
+            # Check if we need to reconnect (different address or stale connection)
+            current_address = (ip_address, tcp_port)
+            current_time = time.time()
+            
+            # Close existing socket if:
+            # 1. Connection is to a different address
+            # 2. Connection is older than 30 seconds (prevent stale connections)
+            # 3. Socket exists but might be in a bad state
+            should_reconnect = (
+                self.socket is None or
+                self.connection_address != current_address or
+                (current_time - self.last_connection_time) > 30
+            )
+            
+            if should_reconnect and self.socket is not None:
+                logger.debug("Closing existing socket before reconnecting")
+                try:
+                    self.socket.close()
+                except Exception:
+                    pass
+                self.socket = None
+            
+            # Create new connection if needed
             if self.socket is None:
+                logger.debug(f"Creating new connection to {ip_address}:{tcp_port}")
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.socket.settimeout(0.5)  # Timeout after 0.5 seconds
+                self.socket.settimeout(0.5)  # Quick timeout for LAN operations
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)  # Enable TCP keepalive
                 self.socket.connect((ip_address, tcp_port))
+                self.connection_address = current_address
+                self.last_connection_time = current_time
                 
-            # Send command
+            # Send command with timeout
+            self.socket.settimeout(0.5)  # Quick timeout for LAN operations
             self.socket.sendall(bytes(command_str, 'utf-8'))
                 
             if self.status_callback:
