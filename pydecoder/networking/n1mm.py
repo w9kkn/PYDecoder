@@ -34,6 +34,14 @@ class N1MMListener:
             bool: True if socket was set up successfully, False otherwise
         """
         try:
+            # Close existing socket if any
+            if self.sock:
+                try:
+                    self.sock.close()
+                except Exception:
+                    pass
+                self.sock = None
+                
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.sock.settimeout(5)  # 5 second timeout
             self.sock.bind((ip_address, udp_port))

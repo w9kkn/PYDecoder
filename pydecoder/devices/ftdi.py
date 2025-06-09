@@ -15,6 +15,7 @@ from typing import List, Optional
 import logging
 import os
 import sys
+import time
 import pyftdi.ftdi
 from pyftdi.gpio import GpioMpsseController
 
@@ -77,6 +78,8 @@ class FTDIDeviceManager:
         self.detected_serials: dict = {}
         # Track which devices are actually configured
         self.configured_devices: list = []
+        # Track failed devices with retry timestamps
+        self.failed_devices: dict = {}  # {device_num: last_failure_time}
         
         # Check if we should use simulation mode
         # First, make sure our environment is set up for ftd2xx
@@ -412,6 +415,13 @@ class FTDIDeviceManager:
                                             return
                                         except Exception as e:
                                             logger.error(f"Error in direct ftd2xx configuration: {e}")
+                                            # Clean up failed device handle
+                                            try:
+                                                if self._ft232h_device0:
+                                                    self._ft232h_device0.close()
+                                            except Exception:
+                                                pass
+                                            self._ft232h_device0 = None
                                     else:
                                         logger.error("No devices reported by ftd2xx for direct access")
                                 except ImportError:
@@ -433,6 +443,13 @@ class FTDIDeviceManager:
                                         self.configured_devices.append(0)
                                 except Exception as e:
                                     logger.error(f"Error in fallback pyftdi configuration: {e}")
+                                    # Clean up failed GPIO controller
+                                    try:
+                                        if self.gpio_device0:
+                                            self.gpio_device0.close()
+                                    except Exception:
+                                        pass
+                                    self.gpio_device0 = None
                             except Exception as e:
                                 if "No backend available" in str(e):
                                     logger.error(f"No backend available for device 0 configuration. Make sure ftd2xx is properly installed.")
@@ -452,6 +469,11 @@ class FTDIDeviceManager:
                                 else:
                                     logger.error(f"Error configuring device 0: {e}")
                                 # Fall back to simulation for this device
+                                try:
+                                    if self.gpio_device0:
+                                        self.gpio_device0.close()
+                                except Exception:
+                                    pass
                                 self.gpio_device0 = None
                         elif device_idx == 1 and self.gpio_device1:
                             logger.debug(f"Configuring FTDI device 1 with ftd2xx-specific approach: {url}")
@@ -472,6 +494,11 @@ class FTDIDeviceManager:
                             except Exception as e:
                                 logger.error(f"Error configuring device 1: {e}")
                                 # Fall back to simulation for this device
+                                try:
+                                    if self.gpio_device1:
+                                        self.gpio_device1.close()
+                                except Exception:
+                                    pass
                                 self.gpio_device1 = None
                         elif device_idx == 2 and self.gpio_device2:
                             logger.debug(f"Configuring FTDI device 2 with ftd2xx-specific approach: {url}")
@@ -492,6 +519,11 @@ class FTDIDeviceManager:
                             except Exception as e:
                                 logger.error(f"Error configuring device 2: {e}")
                                 # Fall back to simulation for this device
+                                try:
+                                    if self.gpio_device2:
+                                        self.gpio_device2.close()
+                                except Exception:
+                                    pass
                                 self.gpio_device2 = None
                                 
                         # Continue to next device
@@ -518,6 +550,11 @@ class FTDIDeviceManager:
                         logger.info(f"Successfully configured device 0 with standard approach")
                     except Exception as e:
                         logger.error(f"Error configuring device 0 with standard approach: {e}")
+                        try:
+                            if self.gpio_device0:
+                                self.gpio_device0.close()
+                        except Exception:
+                            pass
                         self.gpio_device0 = None
                 elif device_idx == 1 and self.gpio_device1:
                     logger.debug(f"Configuring FTDI device 1: {url}")
@@ -534,6 +571,11 @@ class FTDIDeviceManager:
                         logger.info(f"Successfully configured device 1 with standard approach")
                     except Exception as e:
                         logger.error(f"Error configuring device 1 with standard approach: {e}")
+                        try:
+                            if self.gpio_device1:
+                                self.gpio_device1.close()
+                        except Exception:
+                            pass
                         self.gpio_device1 = None
                 elif device_idx == 2 and self.gpio_device2:
                     logger.debug(f"Configuring FTDI device 2: {url}")
@@ -550,6 +592,11 @@ class FTDIDeviceManager:
                         logger.info(f"Successfully configured device 2 with standard approach")
                     except Exception as e:
                         logger.error(f"Error configuring device 2 with standard approach: {e}")
+                        try:
+                            if self.gpio_device2:
+                                self.gpio_device2.close()
+                        except Exception:
+                            pass
                         self.gpio_device2 = None
             except pyftdi.ftdi.FtdiError as e:
                 if "Operation not supported" in str(e) and os.environ.get('PYFTDI_BACKEND') == 'ftd2xx':
@@ -581,6 +628,125 @@ class FTDIDeviceManager:
                 logger.warning("Switching to simulation mode since no devices were configured")
                 self.simulation_mode = True
     
+    def _attempt_device_recovery(self, device_num: int) -> bool:
+        """Attempt to recover a failed device.
+        
+        Args:
+            device_num: Device number to recover (0, 1, or 2)
+            
+        Returns:
+            bool: True if device was recovered successfully
+        """
+        current_time = time.time()
+        
+        # Don't retry too frequently (wait at least 10 seconds between attempts)
+        if device_num in self.failed_devices:
+            time_since_failure = current_time - self.failed_devices[device_num]
+            if time_since_failure < 10:
+                return False
+        
+        logger.info(f"Attempting to recover FTDI device {device_num}")
+        
+        try:
+            # Try to reconfigure the device
+            if device_num < len(self.device_urls):
+                url = self.device_urls[device_num]
+                
+                if device_num == 0:
+                    # Clean up any existing references
+                    if self.gpio_device0:
+                        try:
+                            self.gpio_device0.close()
+                        except Exception:
+                            pass
+                    if self._ft232h_device0:
+                        try:
+                            self._ft232h_device0.close()
+                        except Exception:
+                            pass
+                    
+                    self.gpio_device0 = None
+                    self._ft232h_device0 = None
+                    
+                    # Try to reconfigure
+                    self.gpio_device0 = GpioMpsseController()
+                    self.gpio_device0.configure(
+                        url, 
+                        direction=0xFF,  # All pins as outputs
+                        frequency=1e3,   # 1 kHz
+                        initial=0x0      # Initial value 0
+                    )
+                    
+                    # If successful, add back to configured devices
+                    if 0 not in self.configured_devices:
+                        self.configured_devices.append(0)
+                    
+                    # Remove from failed devices
+                    if 0 in self.failed_devices:
+                        del self.failed_devices[0]
+                    
+                    logger.info(f"Successfully recovered FTDI device 0")
+                    return True
+                    
+                elif device_num == 1:
+                    # Similar recovery for device 1
+                    if self.gpio_device1:
+                        try:
+                            self.gpio_device1.close()
+                        except Exception:
+                            pass
+                    
+                    self.gpio_device1 = None
+                    self.gpio_device1 = GpioMpsseController()
+                    self.gpio_device1.configure(
+                        url, 
+                        direction=0xFF,  # All pins as outputs
+                        frequency=1e3,   # 1 kHz
+                        initial=0x0      # Initial value 0
+                    )
+                    
+                    if 1 not in self.configured_devices:
+                        self.configured_devices.append(1)
+                    
+                    if 1 in self.failed_devices:
+                        del self.failed_devices[1]
+                    
+                    logger.info(f"Successfully recovered FTDI device 1")
+                    return True
+                    
+                elif device_num == 2:
+                    # Similar recovery for device 2
+                    if self.gpio_device2:
+                        try:
+                            self.gpio_device2.close()
+                        except Exception:
+                            pass
+                    
+                    self.gpio_device2 = None
+                    self.gpio_device2 = GpioMpsseController()
+                    self.gpio_device2.configure(
+                        url, 
+                        direction=0xFF,  # All pins as outputs
+                        frequency=1e3,   # 1 kHz
+                        initial=0x0      # Initial value 0
+                    )
+                    
+                    if 2 not in self.configured_devices:
+                        self.configured_devices.append(2)
+                    
+                    if 2 in self.failed_devices:
+                        del self.failed_devices[2]
+                    
+                    logger.info(f"Successfully recovered FTDI device 2")
+                    return True
+        
+        except Exception as e:
+            logger.warning(f"Failed to recover FTDI device {device_num}: {e}")
+            # Update failure timestamp
+            self.failed_devices[device_num] = current_time
+        
+        return False
+    
     def write_bcd(self, bcd_value: int) -> None:
         """Write BCD value to all configured FTDI devices.
         
@@ -596,6 +762,11 @@ class FTDIDeviceManager:
         if self.simulation_mode:
             logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
+        
+        # Attempt to recover any failed devices before writing
+        for device_num in range(min(3, len(self.device_urls))):
+            if device_num in self.failed_devices and device_num not in self.configured_devices:
+                self._attempt_device_recovery(device_num)
         
         # Check for direct ftd2xx mode - this takes precedence over the pyftdi approach
         # Direct mode uses the ftd2xx library to directly write data to the FTDI device 
@@ -628,19 +799,17 @@ class FTDIDeviceManager:
                         logger.warning(f"Unexpected result writing to device 0: wrote {bytes_written} bytes, expected {len(mpsse_command)}")
                 except Exception as e:
                     logger.error(f"Error writing to FTDI device 0 using direct ftd2xx: {e}")
-                    # If write fails, close the device and remove from configured list
+                    # Mark device as failed but don't permanently remove it
                     if 0 in self.configured_devices:
                         self.configured_devices.remove(0)
+                    self.failed_devices[0] = time.time()
                     # Clean up the failed device
                     try:
-                        self._ft232h_device0.close()
+                        if self._ft232h_device0:
+                            self._ft232h_device0.close()
                     except Exception:
                         pass
                     self._ft232h_device0 = None
-                    if not self.configured_devices:
-                        logger.warning("All devices have encountered errors. Switching to simulation mode.")
-                        self.simulation_mode = True
-                        logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
             return
         
         # Standard handling using pyftdi's GpioMpsseController
@@ -659,11 +828,9 @@ class FTDIDeviceManager:
             if 2 in self.configured_devices and self.gpio_device2:
                 devices.append((2, self.gpio_device2))
             
-            # If no devices were configured, switch to simulation mode
+            # If no devices were configured, log warning but continue with retry logic
             if not devices:
-                logger.warning("No devices were successfully configured. Switching to simulation mode.")
-                self.simulation_mode = True
-                logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
+                logger.warning("No devices were successfully configured at this time.")
                 return
             
             for device_num, gpio in devices:
@@ -673,11 +840,13 @@ class FTDIDeviceManager:
                     logger.debug(f"Successfully wrote BCD value {bcd_value} (0x{bcd_value:02X}) to device {device_num} using ftd2xx backend")
                 except Exception as e:
                     logger.error(f"Error writing to FTDI device {device_num} using ftd2xx backend: {e}")
-                    # Remove from configured devices and clean up
+                    # Mark device as failed and clean up
                     if device_num in self.configured_devices:
                         self.configured_devices.remove(device_num)
+                    self.failed_devices[device_num] = time.time()
                     try:
-                        gpio.close()
+                        if gpio:
+                            gpio.close()
                     except Exception:
                         pass
                     # Clear the device reference
@@ -699,9 +868,7 @@ class FTDIDeviceManager:
         # Standard GPIO write for non-ftd2xx backend
         # Only use devices that were successfully configured
         if not self.configured_devices:
-            logger.warning("No devices were successfully configured. Switching to simulation mode.")
-            self.simulation_mode = True
-            logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
+            logger.warning("No devices were successfully configured at this time.")
             return
             
         # Write to each configured device with individual error handling
@@ -720,21 +887,25 @@ class FTDIDeviceManager:
                     return
             except OSError as e:
                 logger.error(f"OS error writing to device 0: {e}")
-                # Remove from configured devices and clean up
+                # Mark device as failed and clean up
                 if 0 in self.configured_devices:
                     self.configured_devices.remove(0)
+                self.failed_devices[0] = time.time()
                 try:
-                    self.gpio_device0.close()
+                    if self.gpio_device0:
+                        self.gpio_device0.close()
                 except Exception:
                     pass
                 self.gpio_device0 = None
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 0: {e}")
-                # Remove from configured devices and clean up
+                # Mark device as failed and clean up
                 if 0 in self.configured_devices:
                     self.configured_devices.remove(0)
+                self.failed_devices[0] = time.time()
                 try:
-                    self.gpio_device0.close()
+                    if self.gpio_device0:
+                        self.gpio_device0.close()
                 except Exception:
                     pass
                 self.gpio_device0 = None
@@ -750,21 +921,25 @@ class FTDIDeviceManager:
                     self.configured_devices.remove(1)
             except OSError as e:
                 logger.error(f"OS error writing to device 1: {e}")
-                # Remove from configured devices and clean up
+                # Mark device as failed and clean up
                 if 1 in self.configured_devices:
                     self.configured_devices.remove(1)
+                self.failed_devices[1] = time.time()
                 try:
-                    self.gpio_device1.close()
+                    if self.gpio_device1:
+                        self.gpio_device1.close()
                 except Exception:
                     pass
                 self.gpio_device1 = None
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 1: {e}")
-                # Remove from configured devices and clean up
+                # Mark device as failed and clean up
                 if 1 in self.configured_devices:
                     self.configured_devices.remove(1)
+                self.failed_devices[1] = time.time()
                 try:
-                    self.gpio_device1.close()
+                    if self.gpio_device1:
+                        self.gpio_device1.close()
                 except Exception:
                     pass
                 self.gpio_device1 = None
@@ -780,30 +955,35 @@ class FTDIDeviceManager:
                     self.configured_devices.remove(2)
             except OSError as e:
                 logger.error(f"OS error writing to device 2: {e}")
-                # Remove from configured devices and clean up
+                # Mark device as failed and clean up
                 if 2 in self.configured_devices:
                     self.configured_devices.remove(2)
+                self.failed_devices[2] = time.time()
                 try:
-                    self.gpio_device2.close()
+                    if self.gpio_device2:
+                        self.gpio_device2.close()
                 except Exception:
                     pass
                 self.gpio_device2 = None
             except Exception as e:
                 logger.error(f"Unexpected error writing to device 2: {e}")
-                # Remove from configured devices and clean up
+                # Mark device as failed and clean up
                 if 2 in self.configured_devices:
                     self.configured_devices.remove(2)
+                self.failed_devices[2] = time.time()
                 try:
-                    self.gpio_device2.close()
+                    if self.gpio_device2:
+                        self.gpio_device2.close()
                 except Exception:
                     pass
                 self.gpio_device2 = None
                     
-        # If no devices remain configured, switch to simulation mode
-        if not self.configured_devices:
-            logger.warning("All devices have encountered errors. Switching to simulation mode.")
-            self.simulation_mode = True
-            logger.info(f"SIMULATION: Writing BCD value {bcd_value} (0x{bcd_value:02X}) to FTDI devices")
+        # If no devices remain configured, log warning but don't switch to simulation
+        # as we will attempt recovery on the next write
+        if not self.configured_devices and not self.failed_devices:
+            logger.warning("No FTDI devices are currently available")
+        elif not self.configured_devices:
+            logger.debug(f"No devices currently configured, but {len(self.failed_devices)} failed devices will be retried")
     
     def close(self) -> None:
         """Close all FTDI devices and release resources.

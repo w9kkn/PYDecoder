@@ -149,18 +149,35 @@ class DecoderEngine:
         """Release resources and prepare for shutdown."""
         logger.info("Shutting down decoder engine")
         
+        # Stop monitoring first
+        self.is_active = False
+        
+        # Close each component with error handling to ensure all get cleaned up
         # Close N1MM socket
-        if self.n1mm_listener.sock:
-            logger.info("Closing N1MM listener socket")
-            self.n1mm_listener.close()
+        try:
+            if self.n1mm_listener and self.n1mm_listener.sock:
+                logger.info("Closing N1MM listener socket")
+                self.n1mm_listener.close()
+        except Exception as e:
+            logger.error(f"Error closing N1MM listener: {e}")
             
         # Close AntennaGenius connection
-        logger.info("Closing AntennaGenius connection")
-        self.antenna_genius.close()
+        try:
+            if self.antenna_genius:
+                logger.info("Closing AntennaGenius connection")
+                self.antenna_genius.close()
+        except Exception as e:
+            logger.error(f"Error closing AntennaGenius connection: {e}")
             
         # Close FTDI devices
-        logger.info("Closing FTDI devices")
-        self.ftdi_manager.close()
+        try:
+            if self.ftdi_manager:
+                logger.info("Closing FTDI devices")
+                self.ftdi_manager.close()
+        except Exception as e:
+            logger.error(f"Error closing FTDI devices: {e}")
+            
+        logger.info("Decoder engine shutdown complete")
     
     def get_current_band(self) -> str:
         """Get the current band name based on frequency.

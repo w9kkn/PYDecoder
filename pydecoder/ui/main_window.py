@@ -32,6 +32,9 @@ class DecoderUI:
         self.window = tk.Tk()
         self.window.title("IP Band Decoder")
         
+        # Timer reference for cleanup
+        self.freq_update_timer = None
+        
         # Load settings
         self.settings = load_settings()
         
@@ -246,8 +249,8 @@ class DecoderUI:
         if new_freq is not None:
             self.radio_freq_label.config(text=f"{new_freq} kHz")
         
-        # Schedule next update
-        self.window.after(500, self.freq_update)
+        # Schedule next update and store the timer reference
+        self.freq_update_timer = self.window.after(500, self.freq_update)
     
     def run(self) -> None:
         """Run the application."""
@@ -267,6 +270,12 @@ class DecoderUI:
         It ensures resources are properly cleaned up before exiting.
         """
         logger.info("Window closing, cleaning up resources")
+        
+        # Cancel the frequency update timer if it exists
+        if self.freq_update_timer is not None:
+            self.window.after_cancel(self.freq_update_timer)
+            self.freq_update_timer = None
+            logger.info("Cancelled frequency update timer")
         
         # Save settings
         self.update_settings_from_ui()

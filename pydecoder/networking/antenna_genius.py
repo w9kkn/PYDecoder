@@ -94,35 +94,65 @@ class AntennaGenius:
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Address error")
             logger.error(error_msg)
-            self.socket = None  # Reset socket on error
+            # Close and reset socket on error
+            try:
+                if self.socket:
+                    self.socket.close()
+            except Exception:
+                pass
+            self.socket = None
             return False
         except socket.timeout as e:
             error_msg = f"AntennaGenius connection timeout: {ip_address}:{tcp_port} - {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Connection timeout")
             logger.error(error_msg)
-            self.socket = None  # Reset socket on error
+            # Close and reset socket on error
+            try:
+                if self.socket:
+                    self.socket.close()
+            except Exception:
+                pass
+            self.socket = None
             return False
         except ConnectionRefusedError as e:
             error_msg = f"AntennaGenius connection refused: {ip_address}:{tcp_port} - {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Connection refused")
             logger.error(error_msg)
-            self.socket = None  # Reset socket on error
+            # Close and reset socket on error
+            try:
+                if self.socket:
+                    self.socket.close()
+            except Exception:
+                pass
+            self.socket = None
             return False
         except socket.error as e:
             error_msg = f"AntennaGenius socket error: {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! Socket error")
             logger.error(error_msg)
-            self.socket = None  # Reset socket on error
+            # Close and reset socket on error
+            try:
+                if self.socket:
+                    self.socket.close()
+            except Exception:
+                pass
+            self.socket = None
             return False
         except OSError as e:
             error_msg = f"AntennaGenius OS error: {e}"
             if self.status_callback:
                 self.status_callback(f"AG Comm Failure! OS error")
             logger.error(error_msg)
-            self.socket = None  # Reset socket on error
+            # Close and reset socket on error
+            try:
+                if self.socket:
+                    self.socket.close()
+            except Exception:
+                pass
+            self.socket = None
             return False
             
     def close(self) -> None:
